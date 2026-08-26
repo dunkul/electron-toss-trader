@@ -16,6 +16,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.3.2",
     "antd": "^6.6.1",
     "dotenv": "^17.4.2",
     "electron-serve": "^3.0.0",
@@ -39,6 +40,7 @@
     "prettier": "3.9.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sass": "^1.103.1",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.68.0"
   }

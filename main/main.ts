@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import './env-setup';
 import path from 'path';
-import { app, ipcMain } from 'electron';
+import { app } from 'electron';
 import serve from 'electron-serve';
 import { createWindow } from './helpers/create-window';
 import { getDb } from './db/connection';
@@ -31,8 +31,8 @@ if (isProd) {
   }
 
   const mainWindow = createWindow('main', {
-    width: 1000,
-    height: 600,
+    width: 1280,
+    height: 800,
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.js'),
     },
@@ -49,8 +49,4 @@ if (isProd) {
 
 app.on('window-all-closed', () => {
   app.quit();
-});
-
-ipcMain.on('message', async (event, arg) => {
-  event.reply('message', `${arg} World!`);
 });

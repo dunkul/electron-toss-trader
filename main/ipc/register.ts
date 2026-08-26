@@ -15,6 +15,7 @@ import { countStocks, searchStocks } from '../db/repositories/stocks';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
+import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
 import { IPC_CHANNELS } from './channels';
 
@@ -67,6 +68,13 @@ export function registerIpcHandlers(db: DatabaseSync): void {
     await ensureStocksCached(db, true);
     return { count: countStocks(db), lastSyncedAt: getLastStocksSyncedAt(db) };
   });
+
+  ipcMain.handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
+
+  ipcMain.handle(
+    IPC_CHANNELS.MARKET_CANDLES,
+    (_event, params: { symbol: string; interval: CandleInterval; count?: number }) => getCandles(db, params),
+  );
 
   ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
     notifySignal({

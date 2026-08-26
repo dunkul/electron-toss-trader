@@ -68,4 +68,24 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // GET /api/v1/stocks/all은 하루 배치로만 갱신되는 저변동 데이터라 API 문서가
+    // 1일 1회 조회 후 로컬 캐싱을 권장한다. 종목 검색용 마스터 캐시 테이블.
+    version: 2,
+    name: 'stocks_cache',
+    sql: `
+      CREATE TABLE stocks (
+        symbol TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        market TEXT NOT NULL,
+        security_type TEXT NOT NULL,
+        is_common_share INTEGER NOT NULL DEFAULT 1,
+        isin_code TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX idx_stocks_market ON stocks(market);
+      CREATE INDEX idx_stocks_name ON stocks(name);
+    `,
+  },
 ];

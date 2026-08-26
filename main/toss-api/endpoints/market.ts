@@ -1,37 +1,52 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { tossRequest } from '../http-client';
+import { TOSS_API_PATHS } from '../paths';
 
-// 응답 필드는 실제 계정으로 호출을 확인하기 전까지는 OpenAPI 문서 기준 추정치다.
-// client_id/secret 발급 후 openapi.json과 대조해 보정한다.
+// openapi.json 확인 결과: 응답은 { result: [...] } 로 감싸져 있고, 가격류 숫자 필드는 문자열(string)로 온다.
 
 export interface PriceQuote {
   symbol: string;
-  price: number;
-  changeRate?: number;
+  timestamp: string;
+  lastPrice: string;
+  currency: string;
 }
 
-export function getPrices(db: DatabaseSync, symbols: string[]): Promise<PriceQuote[]> {
-  return tossRequest<PriceQuote[]>(db, 'MARKET_DATA', '/api/v1/prices', {
+interface PricesResponse {
+  result: PriceQuote[];
+}
+
+export async function getPrices(db: DatabaseSync, symbols: string[]): Promise<PriceQuote[]> {
+  const response = await tossRequest<PricesResponse>(db, 'MARKET_DATA', TOSS_API_PATHS.PRICES, {
     query: { symbols: symbols.join(',') },
   });
+  return response.result;
 }
 
 export type CandleInterval = '1m' | '5m' | '1d';
 
 export interface Candle {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+  timestamp: string;
+  openPrice: string;
+  highPrice: string;
+  lowPrice: string;
+  closePrice: string;
+  volume: string;
+  currency: string;
 }
 
-export function getCandles(
+interface CandlesResponse {
+  result: {
+    candles: Candle[];
+    nextBefore: string | null;
+  };
+}
+
+export async function getCandles(
   db: DatabaseSync,
   params: { symbol: string; interval: CandleInterval; count?: number },
 ): Promise<Candle[]> {
-  return tossRequest<Candle[]>(db, 'MARKET_DATA_CHART', '/api/v1/candles', {
+  const response = await tossRequest<CandlesResponse>(db, 'MARKET_DATA_CHART', TOSS_API_PATHS.CANDLES, {
     query: { symbol: params.symbol, interval: params.interval, count: params.count },
   });
+  return response.result.candles;
 }

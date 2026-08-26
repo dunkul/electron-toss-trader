@@ -11,12 +11,15 @@ import {
 } from '../db/repositories/strategies';
 import { listRecentLogs } from '../db/repositories/logs';
 import { listRecentSignals } from '../db/repositories/signals';
+import { countStocks, searchStocks } from '../db/repositories/stocks';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
+import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
+import { IPC_CHANNELS } from './channels';
 
 export function registerIpcHandlers(db: DatabaseSync): void {
-  ipcMain.handle('accounts:list', async () => {
+  ipcMain.handle(IPC_CHANNELS.ACCOUNTS_LIST, async () => {
     try {
       return await fetchAndCacheAccounts(db);
     } catch (err) {
@@ -25,29 +28,47 @@ export function registerIpcHandlers(db: DatabaseSync): void {
     }
   });
 
-  ipcMain.handle('accounts:holdings', async (_event, accountSeq: string) => getHoldings(db, accountSeq));
+  ipcMain.handle(IPC_CHANNELS.ACCOUNTS_HOLDINGS, async (_event, accountSeq: string) =>
+    getHoldings(db, accountSeq),
+  );
 
-  ipcMain.handle('strategy:list', () => listStrategies(db));
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_LIST, () => listStrategies(db));
 
-  ipcMain.handle('strategy:create', (_event, input: CreateStrategyInput) => createStrategy(db, input));
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_CREATE, (_event, input: CreateStrategyInput) =>
+    createStrategy(db, input),
+  );
 
-  ipcMain.handle('strategy:update', (_event, id: number, input: UpdateStrategyInput) =>
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_UPDATE, (_event, id: number, input: UpdateStrategyInput) =>
     updateStrategy(db, id, input),
   );
 
-  ipcMain.handle('strategy:toggle', (_event, id: number, isActive: boolean) =>
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_TOGGLE, (_event, id: number, isActive: boolean) =>
     toggleStrategy(db, id, isActive),
   );
 
-  ipcMain.handle('strategy:delete', (_event, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_DELETE, (_event, id: number) => {
     deleteStrategy(db, id);
   });
 
-  ipcMain.handle('signals:list', (_event, limit?: number) => listRecentSignals(db, limit));
+  ipcMain.handle(IPC_CHANNELS.SIGNALS_LIST, (_event, limit?: number) => listRecentSignals(db, limit));
 
-  ipcMain.handle('logs:list', (_event, limit?: number) => listRecentLogs(db, limit));
+  ipcMain.handle(IPC_CHANNELS.LOGS_LIST, (_event, limit?: number) => listRecentLogs(db, limit));
 
-  ipcMain.handle('notifications:test', () => {
+  ipcMain.handle(IPC_CHANNELS.STOCKS_SEARCH, (_event, query: string, limit?: number) =>
+    searchStocks(db, query, limit),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.STOCKS_STATUS, () => ({
+    count: countStocks(db),
+    lastSyncedAt: getLastStocksSyncedAt(db),
+  }));
+
+  ipcMain.handle(IPC_CHANNELS.STOCKS_REFRESH, async () => {
+    await ensureStocksCached(db, true);
+    return { count: countStocks(db), lastSyncedAt: getLastStocksSyncedAt(db) };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
     notifySignal({
       strategyName: '테스트 전략',
       symbol: 'TEST',

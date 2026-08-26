@@ -9,6 +9,7 @@ import { StrategyEngine } from './engine/scheduler';
 import { registerIpcHandlers } from './ipc/register';
 import { logger } from './logger';
 import { hasTossApiCredentials } from './toss-api/config';
+import { ensureStocksCached } from './toss-api/stock-cache';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -24,6 +25,7 @@ if (isProd) {
 
   if (hasTossApiCredentials()) {
     new StrategyEngine(db).start();
+    ensureStocksCached(db).catch((err: unknown) => logger.error({ err }, 'stock master sync failed'));
   } else {
     logger.warn('TOSS_CLIENT_ID/TOSS_CLIENT_SECRET가 설정되지 않아 전략 엔진을 시작하지 않았습니다.');
   }

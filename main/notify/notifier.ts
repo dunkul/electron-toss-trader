@@ -1,5 +1,6 @@
 import { BrowserWindow, Notification } from 'electron';
 import type { Signal } from '../db/schema';
+import { IPC_CHANNELS } from '../ipc/channels';
 
 export interface SignalNotification {
   strategyName: string;
@@ -20,6 +21,6 @@ export function notifySignal(payload: SignalNotification): void {
   }
 
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('strategy:signal', payload);
+    win.webContents.send(IPC_CHANNELS.STRATEGY_SIGNAL_EVENT, payload);
   }
 }

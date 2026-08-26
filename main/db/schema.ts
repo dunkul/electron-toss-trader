@@ -4,6 +4,9 @@ export type Signal = 'BUY' | 'SELL' | 'HOLD';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR';
 export type LogSource = 'api' | 'ws' | 'engine' | 'ui';
 
+// GET /api/v1/stocks/all의 market 쿼리 파라미터 값 (거래소 단위, Market보다 세분화됨)
+export type TossExchange = 'KOSPI' | 'KOSDAQ' | 'NYSE' | 'NASDAQ' | 'AMEX' | 'KR_ETC' | 'US_ETC';
+
 export interface AccountRow {
   id: number;
   account_seq: string;
@@ -57,4 +60,14 @@ export interface SystemLogRow {
 export interface SettingRow {
   key: string;
   value: string | null;
+}
+
+export interface StockRow {
+  symbol: string;
+  name: string;
+  market: TossExchange;
+  security_type: string;
+  is_common_share: 0 | 1;
+  isin_code: string | null;
+  updated_at: string;
 }

@@ -3,6 +3,7 @@ import { getValidToken, saveToken } from '../db/repositories/oauth-tokens';
 import { logger } from '../logger';
 import { getTossApiConfig } from './config';
 import { TossApiError, type TossApiErrorPayload } from './errors';
+import { TOSS_API_PATHS } from './paths';
 
 // 실제 만료 시점보다 여유를 두어, 만료 직전 요청이 401로 실패하는 것을 방지한다.
 const TOKEN_SAFETY_MARGIN_MS = 30_000;
@@ -23,7 +24,7 @@ export async function getAccessToken(db: DatabaseSync, forceRefresh = false): Pr
 
   logger.info('requesting new Toss OAuth token');
 
-  const res = await fetch(`${baseUrl}/oauth2/token`, {
+  const res = await fetch(`${baseUrl}${TOSS_API_PATHS.OAUTH_TOKEN}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({

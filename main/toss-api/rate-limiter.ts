@@ -5,6 +5,7 @@ const RATE_LIMITS = {
   ACCOUNT: 1,
   ASSET: 5,
   STOCK: 5,
+  STOCK_ALL: 1,
   MARKET_DATA: 15,
   MARKET_DATA_CHART: 20,
 } as const;

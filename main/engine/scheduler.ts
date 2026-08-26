@@ -35,7 +35,7 @@ export class StrategyEngine {
 
     const symbols = [...new Set(strategies.map((s) => s.symbol))];
     const quotes = await getPrices(this.db, symbols);
-    const priceBySymbol = new Map(quotes.map((quote) => [quote.symbol, quote.price]));
+    const priceBySymbol = new Map(quotes.map((quote) => [quote.symbol, Number(quote.lastPrice)]));
 
     for (const strategy of strategies) {
       // 동일 전략의 이전 tick이 아직 처리 중이면 skip한다.

@@ -3,44 +3,97 @@ import { upsertAccount } from '../../db/repositories/accounts';
 import { tossRequest } from '../http-client';
 import { TOSS_API_PATHS } from '../paths';
 
-// accountSeq 필드명은 openapi.json에서 확인됨. 나머지 필드와 holdings 응답 형태는
-// { result: [...] } 포맷을 따른다고 가정(다른 조회 API와 동일 패턴) — 실 계정으로 보정 필요.
-
+// 실 계정 응답으로 확인된 형태(2026-08-26). accountSeq는 문자열이 아니라 숫자로 내려온다.
 export interface AccountSummary {
-  accountSeq: string;
-  alias?: string;
-  accountType?: string;
+  accountNo: string;
+  accountSeq: number;
+  accountType: string;
 }
 
 interface AccountsResponse {
   result: AccountSummary[];
 }
 
+interface MoneyByCurrency {
+  krw: string;
+  usd: string;
+}
+
+interface HoldingMarketValue {
+  purchaseAmount: string;
+  amount: string;
+  amountAfterCost: string;
+}
+
+interface HoldingProfitLoss {
+  amount: string;
+  amountAfterCost: string;
+  rate: string;
+  rateAfterCost: string;
+}
+
+interface HoldingDailyProfitLoss {
+  amount: string;
+  rate: string;
+}
+
 export interface Holding {
   symbol: string;
-  quantity: number;
-  averagePrice: number;
+  name: string;
+  marketCountry: 'KR' | 'US';
+  currency: string;
+  quantity: string;
+  lastPrice: string;
+  averagePurchasePrice: string;
+  marketValue: HoldingMarketValue;
+  profitLoss: HoldingProfitLoss;
+  dailyProfitLoss: HoldingDailyProfitLoss;
+  cost: { commission: string; tax: string | null };
+}
+
+// GET /api/v1/holdings는 보유 종목 배열이 아니라, 계좌 평가금액 요약 + items 배열을 함께 반환한다.
+export interface HoldingsSummary {
+  totalPurchaseAmount: MoneyByCurrency;
+  marketValue: { amount: MoneyByCurrency; amountAfterCost: MoneyByCurrency };
+  profitLoss: {
+    amount: MoneyByCurrency;
+    amountAfterCost: MoneyByCurrency;
+    rate: string;
+    rateAfterCost: string;
+  };
+  dailyProfitLoss: { amount: MoneyByCurrency; rate: string };
+  items: Holding[];
 }
 
 interface HoldingsResponse {
-  result: Holding[];
+  result: HoldingsSummary;
 }
+
+const EMPTY_HOLDINGS_SUMMARY: HoldingsSummary = {
+  totalPurchaseAmount: { krw: '0', usd: '0' },
+  marketValue: { amount: { krw: '0', usd: '0' }, amountAfterCost: { krw: '0', usd: '0' } },
+  profitLoss: {
+    amount: { krw: '0', usd: '0' },
+    amountAfterCost: { krw: '0', usd: '0' },
+    rate: '0',
+    rateAfterCost: '0',
+  },
+  dailyProfitLoss: { amount: { krw: '0', usd: '0' }, rate: '0' },
+  items: [],
+};
 
 export async function fetchAndCacheAccounts(db: DatabaseSync): Promise<AccountSummary[]> {
   const response = await tossRequest<AccountsResponse>(db, 'ACCOUNT', TOSS_API_PATHS.ACCOUNTS);
+  const accounts = response.result ?? [];
 
-  for (const account of response.result) {
-    upsertAccount(db, {
-      accountSeq: account.accountSeq,
-      alias: account.alias ?? null,
-      accountType: account.accountType ?? null,
-    });
+  for (const account of accounts) {
+    upsertAccount(db, { accountSeq: String(account.accountSeq), accountType: account.accountType });
   }
 
-  return response.result;
+  return accounts;
 }
 
-export async function getHoldings(db: DatabaseSync, accountSeq: string): Promise<Holding[]> {
+export async function getHoldings(db: DatabaseSync, accountSeq: string): Promise<HoldingsSummary> {
   const response = await tossRequest<HoldingsResponse>(db, 'ASSET', TOSS_API_PATHS.HOLDINGS, { accountSeq });
-  return response.result;
+  return response.result ?? EMPTY_HOLDINGS_SUMMARY;
 }

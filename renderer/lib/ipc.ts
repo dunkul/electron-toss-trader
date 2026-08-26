@@ -7,7 +7,7 @@ import type {
   StrategyType,
   SystemLogRow,
 } from '../../main/db/schema';
-import type { AccountSummary, Holding } from '../../main/toss-api/endpoints/account';
+import type { AccountSummary, Holding, HoldingsSummary } from '../../main/toss-api/endpoints/account';
 import type { Candle, CandleInterval, PriceQuote } from '../../main/toss-api/endpoints/market';
 import type { SignalNotification } from '../../main/notify/notifier';
 
@@ -38,12 +38,21 @@ export interface StocksStatus {
 }
 
 export type { Market, StockRow, StrategyRow, StrategySignalRow, StrategyType, SystemLogRow };
-export type { AccountSummary, Holding, Candle, CandleInterval, PriceQuote, SignalNotification };
+export type {
+  AccountSummary,
+  Holding,
+  HoldingsSummary,
+  Candle,
+  CandleInterval,
+  PriceQuote,
+  SignalNotification,
+};
 export type { CreateStrategyInput, UpdateStrategyInput };
 
 export const api = {
   listAccounts: () => window.ipc.invoke<AccountSummary[]>(CHANNELS.ACCOUNTS_LIST),
-  getHoldings: (accountSeq: string) => window.ipc.invoke<Holding[]>(CHANNELS.ACCOUNTS_HOLDINGS, accountSeq),
+  getHoldings: (accountSeq: string) =>
+    window.ipc.invoke<HoldingsSummary>(CHANNELS.ACCOUNTS_HOLDINGS, accountSeq),
 
   listStrategies: () => window.ipc.invoke<StrategyRow[]>(CHANNELS.STRATEGY_LIST),
   createStrategy: (input: CreateStrategyInput) =>

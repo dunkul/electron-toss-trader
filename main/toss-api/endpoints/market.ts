@@ -19,7 +19,7 @@ export async function getPrices(db: DatabaseSync, symbols: string[]): Promise<Pr
   const response = await tossRequest<PricesResponse>(db, 'MARKET_DATA', TOSS_API_PATHS.PRICES, {
     query: { symbols: symbols.join(',') },
   });
-  return response.result;
+  return response.result ?? [];
 }
 
 export type CandleInterval = '1m' | '5m' | '1d';
@@ -48,5 +48,5 @@ export async function getCandles(
   const response = await tossRequest<CandlesResponse>(db, 'MARKET_DATA_CHART', TOSS_API_PATHS.CANDLES, {
     query: { symbol: params.symbol, interval: params.interval, count: params.count },
   });
-  return response.result.candles;
+  return response.result?.candles ?? [];
 }

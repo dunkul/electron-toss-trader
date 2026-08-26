@@ -21,5 +21,5 @@ export async function getAllStocks(db: DatabaseSync, market: TossExchange): Prom
   const response = await tossRequest<StocksAllResponse>(db, 'STOCK_ALL', TOSS_API_PATHS.STOCKS_ALL, {
     query: { market },
   });
-  return response.result;
+  return response.result ?? [];
 }

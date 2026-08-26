@@ -3,7 +3,7 @@ import Head from 'next/head';
 import { Alert, App, Badge, Card, Col, Row, Statistic, Table, Tag, Typography } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api, onStrategySignal } from '../lib/ipc';
-import type { AccountSummary, Holding, StrategyRow, StrategySignalRow } from '../lib/ipc';
+import type { AccountSummary, Holding, HoldingsSummary, StrategyRow, StrategySignalRow } from '../lib/ipc';
 
 const { Text } = Typography;
 
@@ -13,12 +13,20 @@ function signalColor(signal: string): string {
   return 'default';
 }
 
+function formatKrw(value: string): string {
+  return `${Math.round(Number(value)).toLocaleString()}원`;
+}
+
+function formatRate(rate: string): string {
+  return `${(Number(rate) * 100).toFixed(2)}%`;
+}
+
 export default function HomePage() {
   const { notification } = App.useApp();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
-  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [holdingsSummary, setHoldingsSummary] = useState<HoldingsSummary | null>(null);
   const [strategies, setStrategies] = useState<StrategyRow[]>([]);
   const [signals, setSignals] = useState<StrategySignalRow[]>([]);
 
@@ -31,12 +39,13 @@ export default function HomePage() {
         api.listStrategies(),
         api.listSignals(10),
       ]);
-      setAccounts(accountList);
-      setStrategies(strategyList);
-      setSignals(signalList);
+      setAccounts(Array.isArray(accountList) ? accountList : []);
+      setStrategies(Array.isArray(strategyList) ? strategyList : []);
+      setSignals(Array.isArray(signalList) ? signalList : []);
 
-      if (accountList[0]) {
-        setHoldings(await api.getHoldings(accountList[0].accountSeq));
+      if (Array.isArray(accountList) && accountList[0]) {
+        const summary = await api.getHoldings(String(accountList[0].accountSeq));
+        setHoldingsSummary(summary);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '대시보드 정보를 불러오지 못했습니다.');
@@ -59,6 +68,8 @@ export default function HomePage() {
   }, [loadDashboard, notification]);
 
   const activeStrategies = strategies.filter((s) => s.is_active);
+  const holdings = holdingsSummary?.items ?? [];
+  const profitLossKrw = holdingsSummary ? Number(holdingsSummary.profitLoss.amount.krw) : 0;
 
   return (
     <AppLayout title="대시보드">
@@ -69,12 +80,12 @@ export default function HomePage() {
       {error && <Alert type="error" message={error} showIcon closable style={{ marginBottom: 16 }} />}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Statistic title="등록 계좌 수" value={accounts.length} suffix="개" />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Statistic
               title="감시 중인 전략"
@@ -83,9 +94,19 @@ export default function HomePage() {
             />
           </Card>
         </Col>
-        <Col span={8}>
+        <Col span={6}>
           <Card>
             <Statistic title="최근 알림" value={signals.length} suffix="건" />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card>
+            <Statistic
+              title="평가손익 (원화 보유분)"
+              value={holdingsSummary ? formatKrw(holdingsSummary.profitLoss.amount.krw) : '-'}
+              suffix={holdingsSummary ? formatRate(holdingsSummary.profitLoss.rate) : undefined}
+              valueStyle={{ color: profitLossKrw >= 0 ? '#cf1322' : '#1b7a3d' }}
+            />
           </Card>
         </Col>
       </Row>
@@ -103,9 +124,37 @@ export default function HomePage() {
                 emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
               }}
               columns={[
-                { title: '종목', dataIndex: 'symbol' },
-                { title: '수량', dataIndex: 'quantity', align: 'right' },
-                { title: '평균단가', dataIndex: 'averagePrice', align: 'right' },
+                {
+                  title: '종목',
+                  dataIndex: 'name',
+                  render: (value: string, record) => (
+                    <span>
+                      {value} <Text type="secondary">({record.symbol})</Text>
+                    </span>
+                  ),
+                },
+                {
+                  title: '수량',
+                  dataIndex: 'quantity',
+                  align: 'right',
+                  render: (value: string) =>
+                    Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 }),
+                },
+                {
+                  title: '현재가',
+                  dataIndex: 'lastPrice',
+                  align: 'right',
+                  render: (value: string, record) => `${Number(value).toLocaleString()} ${record.currency}`,
+                },
+                {
+                  title: '평가손익률',
+                  dataIndex: 'profitLoss',
+                  align: 'right',
+                  render: (value: Holding['profitLoss']) => {
+                    const rate = Number(value.rate);
+                    return <Text type={rate >= 0 ? 'danger' : 'success'}>{formatRate(value.rate)}</Text>;
+                  },
+                },
               ]}
             />
           </Card>

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { upsertAccount } from '../../db/repositories/accounts';
 import { tossRequest } from '../http-client';
 import { TOSS_API_PATHS } from '../paths';
+import { API_GROUPS } from '../rate-limiter';
 
 // 실 계정 응답으로 확인된 형태(2026-08-26). accountSeq는 문자열이 아니라 숫자로 내려온다.
 export interface AccountSummary {
@@ -83,7 +84,7 @@ const EMPTY_HOLDINGS_SUMMARY: HoldingsSummary = {
 };
 
 export async function fetchAndCacheAccounts(db: DatabaseSync): Promise<AccountSummary[]> {
-  const response = await tossRequest<AccountsResponse>(db, 'ACCOUNT', TOSS_API_PATHS.ACCOUNTS);
+  const response = await tossRequest<AccountsResponse>(db, API_GROUPS.ACCOUNT, TOSS_API_PATHS.ACCOUNTS);
   const accounts = response.result ?? [];
 
   for (const account of accounts) {
@@ -94,6 +95,8 @@ export async function fetchAndCacheAccounts(db: DatabaseSync): Promise<AccountSu
 }
 
 export async function getHoldings(db: DatabaseSync, accountSeq: string): Promise<HoldingsSummary> {
-  const response = await tossRequest<HoldingsResponse>(db, 'ASSET', TOSS_API_PATHS.HOLDINGS, { accountSeq });
+  const response = await tossRequest<HoldingsResponse>(db, API_GROUPS.ASSET, TOSS_API_PATHS.HOLDINGS, {
+    accountSeq,
+  });
   return response.result ?? EMPTY_HOLDINGS_SUMMARY;
 }

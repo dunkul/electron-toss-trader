@@ -88,4 +88,18 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_stocks_name ON stocks(name);
     `,
   },
+  {
+    // 시세/차트 화면에서 사용자가 저장/삭제하는 관심종목(워치리스트).
+    version: 3,
+    name: 'watchlist',
+    sql: `
+      CREATE TABLE watchlist (
+        id INTEGER PRIMARY KEY,
+        symbol TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        market TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `,
+  },
 ];

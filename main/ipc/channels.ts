@@ -16,6 +16,9 @@ export const IPC_CHANNELS = {
   STOCKS_REFRESH: 'stocks:refresh',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
+  WATCHLIST_LIST: 'watchlist:list',
+  WATCHLIST_ADD: 'watchlist:add',
+  WATCHLIST_REMOVE: 'watchlist:remove',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
 } as const;

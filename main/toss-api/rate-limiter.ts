@@ -1,16 +1,28 @@
-// 1차 범위에서 실사용하는 그룹만 등록한다. 주문 계열(ORDER, ORDER_INFO, CONDITIONAL_ORDER)은
-// 2차 개발 착수 시 추가한다.
-const RATE_LIMITS = {
-  AUTH: 5,
-  ACCOUNT: 1,
-  ASSET: 5,
-  STOCK: 5,
-  STOCK_ALL: 1,
-  MARKET_DATA: 15,
-  MARKET_DATA_CHART: 20,
+// tossRequest(db, group, ...) 호출부에서 그룹명을 문자열 리터럴로 반복 입력하지 않도록
+// 하는 단일 출처. TOSS_API_PATHS/IPC_CHANNELS와 동일한 패턴.
+export const API_GROUPS = {
+  AUTH: 'AUTH',
+  ACCOUNT: 'ACCOUNT',
+  ASSET: 'ASSET',
+  STOCK: 'STOCK',
+  STOCK_ALL: 'STOCK_ALL',
+  MARKET_DATA: 'MARKET_DATA',
+  MARKET_DATA_CHART: 'MARKET_DATA_CHART',
 } as const;
 
-export type ApiGroup = keyof typeof RATE_LIMITS;
+export type ApiGroup = (typeof API_GROUPS)[keyof typeof API_GROUPS];
+
+// 1차 범위에서 실사용하는 그룹만 등록한다. 주문 계열(ORDER, ORDER_INFO, CONDITIONAL_ORDER)은
+// 2차 개발 착수 시 추가한다.
+const RATE_LIMITS: Record<ApiGroup, number> = {
+  [API_GROUPS.AUTH]: 5,
+  [API_GROUPS.ACCOUNT]: 1,
+  [API_GROUPS.ASSET]: 5,
+  [API_GROUPS.STOCK]: 5,
+  [API_GROUPS.STOCK_ALL]: 1,
+  [API_GROUPS.MARKET_DATA]: 15,
+  [API_GROUPS.MARKET_DATA_CHART]: 20,
+};
 
 interface Bucket {
   capacity: number;

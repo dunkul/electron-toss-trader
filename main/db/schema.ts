@@ -71,3 +71,11 @@ export interface StockRow {
   isin_code: string | null;
   updated_at: string;
 }
+
+export interface WatchlistRow {
+  id: number;
+  symbol: string;
+  name: string;
+  market: TossExchange;
+  created_at: string;
+}

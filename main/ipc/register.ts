@@ -12,6 +12,12 @@ import {
 import { listRecentLogs } from '../db/repositories/logs';
 import { listRecentSignals } from '../db/repositories/signals';
 import { countStocks, searchStocks } from '../db/repositories/stocks';
+import {
+  addToWatchlist,
+  listWatchlist,
+  removeFromWatchlist,
+  type AddToWatchlistInput,
+} from '../db/repositories/watchlist';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
@@ -73,8 +79,19 @@ export function registerIpcHandlers(db: DatabaseSync): void {
 
   ipcMain.handle(
     IPC_CHANNELS.MARKET_CANDLES,
-    (_event, params: { symbol: string; interval: CandleInterval; count?: number }) => getCandles(db, params),
+    (_event, params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
+      getCandles(db, params),
   );
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) =>
+    addToWatchlist(db, input),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, (_event, symbol: string) => {
+    removeFromWatchlist(db, symbol);
+  });
 
   ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
     notifySignal({

@@ -1,4 +1,5 @@
 import type { CreateStrategyInput, UpdateStrategyInput } from '../../main/db/repositories/strategies';
+import type { AddToWatchlistInput } from '../../main/db/repositories/watchlist';
 import type {
   Market,
   StockRow,
@@ -6,9 +7,10 @@ import type {
   StrategySignalRow,
   StrategyType,
   SystemLogRow,
+  WatchlistRow,
 } from '../../main/db/schema';
 import type { AccountSummary, Holding, HoldingsSummary } from '../../main/toss-api/endpoints/account';
-import type { Candle, CandleInterval, PriceQuote } from '../../main/toss-api/endpoints/market';
+import type { Candle, CandleInterval, CandlesPage, PriceQuote } from '../../main/toss-api/endpoints/market';
 import type { SignalNotification } from '../../main/notify/notifier';
 
 // main/ipc/channels.ts의 채널 이름과 반드시 일치해야 한다.
@@ -29,6 +31,9 @@ const CHANNELS = {
   STOCKS_REFRESH: 'stocks:refresh',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
+  WATCHLIST_LIST: 'watchlist:list',
+  WATCHLIST_ADD: 'watchlist:add',
+  WATCHLIST_REMOVE: 'watchlist:remove',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
 } as const;
 
@@ -37,13 +42,15 @@ export interface StocksStatus {
   lastSyncedAt: string | null;
 }
 
-export type { Market, StockRow, StrategyRow, StrategySignalRow, StrategyType, SystemLogRow };
+export type { Market, StockRow, StrategyRow, StrategySignalRow, StrategyType, SystemLogRow, WatchlistRow };
+export type { AddToWatchlistInput };
 export type {
   AccountSummary,
   Holding,
   HoldingsSummary,
   Candle,
   CandleInterval,
+  CandlesPage,
   PriceQuote,
   SignalNotification,
 };
@@ -72,8 +79,13 @@ export const api = {
   refreshStocks: () => window.ipc.invoke<StocksStatus>(CHANNELS.STOCKS_REFRESH),
 
   getPrices: (symbols: string[]) => window.ipc.invoke<PriceQuote[]>(CHANNELS.MARKET_PRICES, symbols),
-  getCandles: (params: { symbol: string; interval: CandleInterval; count?: number }) =>
-    window.ipc.invoke<Candle[]>(CHANNELS.MARKET_CANDLES, params),
+  getCandles: (params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
+    window.ipc.invoke<CandlesPage>(CHANNELS.MARKET_CANDLES, params),
+
+  listWatchlist: () => window.ipc.invoke<WatchlistRow[]>(CHANNELS.WATCHLIST_LIST),
+  addToWatchlist: (input: AddToWatchlistInput) =>
+    window.ipc.invoke<WatchlistRow>(CHANNELS.WATCHLIST_ADD, input),
+  removeFromWatchlist: (symbol: string) => window.ipc.invoke<void>(CHANNELS.WATCHLIST_REMOVE, symbol),
 
   testNotification: () => window.ipc.invoke<void>(CHANNELS.NOTIFICATIONS_TEST),
 };

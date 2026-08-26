@@ -1,18 +1,32 @@
+import 'dotenv/config';
+import './env-setup';
 import path from 'path';
 import { app, ipcMain } from 'electron';
 import serve from 'electron-serve';
 import { createWindow } from './helpers/create-window';
+import { getDb } from './db/connection';
+import { StrategyEngine } from './engine/scheduler';
+import { registerIpcHandlers } from './ipc/register';
+import { logger } from './logger';
+import { hasTossApiCredentials } from './toss-api/config';
 
 const isProd = process.env.NODE_ENV === 'production';
 
 if (isProd) {
   serve({ directory: 'app' });
-} else {
-  app.setPath('userData', `${app.getPath('userData')} (development)`);
 }
 
 (async () => {
   await app.whenReady();
+
+  const db = getDb();
+  registerIpcHandlers(db);
+
+  if (hasTossApiCredentials()) {
+    new StrategyEngine(db).start();
+  } else {
+    logger.warn('TOSS_CLIENT_ID/TOSS_CLIENT_SECRET가 설정되지 않아 전략 엔진을 시작하지 않았습니다.');
+  }
 
   const mainWindow = createWindow('main', {
     width: 1000,

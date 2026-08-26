@@ -1,4 +1,4 @@
-import { NextConfig } from 'next'
+import { NextConfig } from 'next';
 
 const config: NextConfig = {
   output: 'export',
@@ -7,6 +7,6 @@ const config: NextConfig = {
   images: {
     unoptimized: true,
   },
-}
+};
 
-export default config
+export default config;

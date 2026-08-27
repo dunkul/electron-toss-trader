@@ -15,7 +15,7 @@ import {
   Typography,
   type TabsProps,
 } from 'antd';
-import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EditOutlined, HolderOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   CandlestickSeries,
   createChart,
@@ -33,7 +33,6 @@ import { api, onMarketTick } from '../lib/ipc';
 import type {
   AccountSummary,
   Candle,
-  Holding,
   HoldingsSummary,
   PriceQuote,
   StockRow,
@@ -52,6 +51,14 @@ interface SelectedStock {
   symbol: string;
   name: string;
   market: TossExchange;
+}
+
+// 다른 탭(관심종목 그룹)과 같은 표 형식으로 보유종목을 보여주기 위한 행 — 마켓은 로컬
+// 종목 캐시에서 조회해서 채워 넣으며, 캐시에 없으면 undefined(마켓 '-', 차트 클릭 불가).
+interface HoldingWatchRow {
+  symbol: string;
+  name: string;
+  market: TossExchange | undefined;
 }
 
 export default function MarketPage() {
@@ -108,43 +115,53 @@ export default function MarketPage() {
   // 이 ref들을 통해 항상 최신 상태로 참조해야 한다(그렇지 않으면 최초 등록 시점의 stale 값을 계속 참조하게 된다).
   const watchlistSymbolsRef = useRef<Set<string>>(new Set());
   const selectedSymbolRef = useRef<string | null>(null);
+  // 드래그로 순서 변경 중인 종목 심볼 — HTML5 드래그 이벤트끼리 데이터를 주고받는 용도라
+  // 리렌더링을 유발할 필요가 없으므로 상태가 아니라 ref로 둔다.
+  const dragSymbolRef = useRef<string | null>(null);
+
+  // 관심종목 탭과 보유종목 탭이 같은 심볼을 가리킬 수 있어(watchlistPrices/referencePrices를
+  // 공유하므로) 항상 병합만 하고 통째로 갈아엎지 않는다 — 한쪽 로딩이 다른 쪽 데이터를 지우면 안 된다.
+  const mergePricesAndReferences = useCallback((symbols: string[]) => {
+    if (symbols.length === 0) return;
+
+    api
+      .getPrices(symbols)
+      .then((prices) => {
+        setWatchlistPrices((prev) => ({
+          ...prev,
+          ...Object.fromEntries(prices.map((quote) => [quote.symbol, quote])),
+        }));
+      })
+      .catch(() => {});
+
+    // 전일종가 = 일봉 2개 중 어제 것(최신순으로 오므로 index 1). 상장 첫날 등 1개뿐이면 등락 표시를 생략한다.
+    Promise.all(
+      symbols.map(async (symbol) => {
+        try {
+          const page = await api.getCandles({ symbol, interval: '1d', count: 2 });
+          const ref = page.candles[1]?.closePrice;
+          return ref ? ([symbol, Number(ref)] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((entries) => {
+      setReferencePrices((prev) => ({
+        ...prev,
+        ...Object.fromEntries(entries.filter((entry): entry is readonly [string, number] => entry !== null)),
+      }));
+    });
+  }, []);
 
   const loadWatchlist = useCallback(() => {
     api
       .listWatchlist()
       .then((rows) => {
         setWatchlist(rows);
-        if (rows.length === 0) {
-          setWatchlistPrices({});
-          setReferencePrices({});
-          return;
-        }
-        api
-          .getPrices(rows.map((row) => row.symbol))
-          .then((prices) => {
-            setWatchlistPrices(Object.fromEntries(prices.map((quote) => [quote.symbol, quote])));
-          })
-          .catch(() => setWatchlistPrices({}));
-
-        // 전일종가 = 일봉 2개 중 어제 것(최신순으로 오므로 index 1). 상장 첫날 등 1개뿐이면 등락 표시를 생략한다.
-        Promise.all(
-          rows.map(async (row) => {
-            try {
-              const page = await api.getCandles({ symbol: row.symbol, interval: '1d', count: 2 });
-              const ref = page.candles[1]?.closePrice;
-              return ref ? ([row.symbol, Number(ref)] as const) : null;
-            } catch {
-              return null;
-            }
-          }),
-        ).then((entries) => {
-          setReferencePrices(
-            Object.fromEntries(entries.filter((entry): entry is readonly [string, number] => entry !== null)),
-          );
-        });
+        mergePricesAndReferences(rows.map((row) => row.symbol));
       })
       .catch(() => setWatchlist([]));
-  }, []);
+  }, [mergePricesAndReferences]);
 
   const loadGroups = useCallback(() => {
     api
@@ -161,9 +178,11 @@ export default function MarketPage() {
       if (Array.isArray(accountList) && accountList[0]) {
         const summary = await api.getHoldings(String(accountList[0].accountSeq));
         setHoldingsSummary(summary);
-        if (summary.items.length > 0) {
+        const symbols = summary.items.map((item) => item.symbol);
+        mergePricesAndReferences(symbols);
+        if (symbols.length > 0) {
           api
-            .getStocksBySymbols(summary.items.map((item) => item.symbol))
+            .getStocksBySymbols(symbols)
             .then((rows) => setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))))
             .catch(() => setHoldingMarkets({}));
         } else {
@@ -178,7 +197,7 @@ export default function MarketPage() {
     } finally {
       setHoldingsLoading(false);
     }
-  }, []);
+  }, [mergePricesAndReferences]);
 
   useEffect(() => {
     loadWatchlist();
@@ -187,17 +206,26 @@ export default function MarketPage() {
     loadHoldings();
   }, [loadWatchlist, loadGroups, loadHoldings]);
 
-  // 관심종목/선택된 종목이 바뀔 때마다 main 프로세스에 구독 대상 전체를 다시 선언한다(full-replace).
+  // 관심종목/보유종목/선택된 종목이 바뀔 때마다 main 프로세스에 구독 대상 전체를 다시
+  // 선언한다(full-replace). 보유종목은 마켓이 해소된(로컬 종목 캐시에 있는) 심볼만 포함된다.
   useEffect(() => {
-    watchlistSymbolsRef.current = new Set(watchlist.map((row) => row.symbol));
+    const holdingEntries = Object.entries(holdingMarkets);
+
+    watchlistSymbolsRef.current = new Set([
+      ...watchlist.map((row) => row.symbol),
+      ...holdingEntries.map(([symbol]) => symbol),
+    ]);
     selectedSymbolRef.current = selected?.symbol ?? null;
 
-    const symbols = watchlist.map((row) => ({ symbol: row.symbol, market: row.market }));
+    const symbols = [
+      ...watchlist.map((row) => ({ symbol: row.symbol, market: row.market })),
+      ...holdingEntries.map(([symbol, market]) => ({ symbol, market })),
+    ];
     if (selected && !symbols.some((s) => s.symbol === selected.symbol)) {
       symbols.push({ symbol: selected.symbol, market: selected.market });
     }
     api.subscribeMarket(symbols);
-  }, [watchlist, selected]);
+  }, [watchlist, selected, holdingMarkets]);
 
   // 페이지를 떠날 때는 구독을 비워 main 프로세스가 불필요한 시세를 계속 받지 않도록 한다.
   useEffect(() => {
@@ -400,6 +428,30 @@ export default function MarketPage() {
     [loadWatchlist, message],
   );
 
+  // 드래그로 놓인 자리를 기준으로 그 탭(그룹) 안에서만 순서를 다시 계산해 낙관적으로 반영하고,
+  // 서버에는 그 그룹의 최종 순서 전체를 보낸다. 실패하면 서버 상태로 되돌린다.
+  const reorderGroup = useCallback(
+    (groupId: number, draggedSymbol: string, targetSymbol: string) => {
+      if (draggedSymbol === targetSymbol) return;
+      const groupRows = watchlist.filter((row) => row.group_id === groupId);
+      const fromIndex = groupRows.findIndex((row) => row.symbol === draggedSymbol);
+      const toIndex = groupRows.findIndex((row) => row.symbol === targetSymbol);
+      if (fromIndex === -1 || toIndex === -1) return;
+
+      const reordered = [...groupRows];
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+
+      setWatchlist((prev) => [...prev.filter((row) => row.group_id !== groupId), ...reordered]);
+
+      api.reorderWatchlist(groupId, reordered.map((row) => row.symbol)).catch(() => {
+        message.error('순서 변경에 실패했습니다.');
+        loadWatchlist();
+      });
+    },
+    [watchlist, loadWatchlist, message],
+  );
+
   // 탭을 옮기면 그 탭의 첫 번째 종목 차트를 바로 연다(없으면 차트를 비운다).
   const openFirstSymbolOfTab = useCallback(
     (key: string) => {
@@ -516,11 +568,15 @@ export default function MarketPage() {
               label: '내 보유종목',
               closable: false,
               children: (
-                <Table<Holding>
+                <Table<HoldingWatchRow>
                   rowKey="symbol"
                   size="small"
                   loading={holdingsLoading}
-                  dataSource={holdingsSummary?.items ?? []}
+                  dataSource={(holdingsSummary?.items ?? []).map((item) => ({
+                    symbol: item.symbol,
+                    name: item.name,
+                    market: holdingMarkets[item.symbol],
+                  }))}
                   pagination={false}
                   locale={{
                     emptyText: accounts.length
@@ -531,52 +587,31 @@ export default function MarketPage() {
                     {
                       title: '종목',
                       key: 'symbol',
-                      render: (_value, record) => {
-                        const market = holdingMarkets[record.symbol];
-                        return (
-                          <a
-                            onClick={() => {
-                              if (!market) {
-                                message.error(
-                                  '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
-                                );
-                                return;
-                              }
-                              loadSymbol({ symbol: record.symbol, name: record.name, market });
-                            }}
-                          >
-                            <StockCell name={record.name} symbol={record.symbol} />
-                          </a>
-                        );
-                      },
+                      render: (_value, record) => (
+                        <a
+                          onClick={() => {
+                            if (!record.market) {
+                              message.error(
+                                '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
+                              );
+                              return;
+                            }
+                            loadSymbol({ symbol: record.symbol, name: record.name, market: record.market });
+                          }}
+                        >
+                          <StockCell name={record.name} symbol={record.symbol} />
+                        </a>
+                      ),
                     },
-                    {
-                      title: '수량',
-                      dataIndex: 'quantity',
-                      align: 'right',
-                      render: (value: string) =>
-                        Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 }),
-                    },
+                    { title: '마켓', key: 'market', render: (_value, record) => record.market ?? '-' },
                     {
                       title: '현재가',
                       key: 'price',
                       align: 'right',
-                      render: (_value, record) => (
-                        <PriceBlock currency={record.currency} main={Number(record.lastPrice).toLocaleString()} />
-                      ),
-                    },
-                    {
-                      title: '평가손익',
-                      key: 'profitLoss',
-                      align: 'right',
-                      render: (_value, record) => (
-                        <PriceBlock
-                          currency={record.currency}
-                          main={formatAmount(record.profitLoss.amount)}
-                          secondary={formatRate(record.profitLoss.rate)}
-                          color={profitColor(Number(record.profitLoss.amount))}
-                        />
-                      ),
+                      render: (_value, record) => {
+                        const quote = watchlistPrices[record.symbol];
+                        return quote ? renderPriceBlock(quote) : '-';
+                      },
                     },
                   ]}
                 />
@@ -624,7 +659,27 @@ export default function MarketPage() {
                     dataSource={watchlist.filter((row) => row.group_id === group.id)}
                     pagination={false}
                     locale={{ emptyText: '종목을 검색해서 선택하면 이 탭에 저장됩니다.' }}
+                    onRow={(record) => ({
+                      draggable: true,
+                      onDragStart: () => {
+                        dragSymbolRef.current = record.symbol;
+                      },
+                      onDragOver: (event) => event.preventDefault(),
+                      onDrop: () => {
+                        if (dragSymbolRef.current) reorderGroup(group.id, dragSymbolRef.current, record.symbol);
+                        dragSymbolRef.current = null;
+                      },
+                      onDragEnd: () => {
+                        dragSymbolRef.current = null;
+                      },
+                    })}
                     columns={[
+                      {
+                        title: '',
+                        key: 'drag',
+                        width: 32,
+                        render: () => <HolderOutlined style={{ cursor: 'grab', color: 'rgba(0,0,0,0.35)' }} />,
+                      },
                       {
                         title: '종목',
                         key: 'symbol',

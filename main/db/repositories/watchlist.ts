@@ -69,3 +69,22 @@ export async function addToWatchlist(db: Kysely<Database>, input: AddToWatchlist
 export async function removeFromWatchlist(db: Kysely<Database>, groupId: number, symbol: string): Promise<void> {
   await db.deleteFrom('watchlist').where('group_id', '=', groupId).where('symbol', '=', symbol).execute();
 }
+
+// symbols는 드래그로 재배치한 뒤의 최종 순서 전체(그 그룹의 모든 종목)를 그대로 받아, 인덱스를
+// sort_order로 다시 매긴다.
+export async function reorderWatchlist(
+  db: Kysely<Database>,
+  groupId: number,
+  symbols: string[],
+): Promise<void> {
+  await db.transaction().execute(async (trx) => {
+    for (const [index, symbol] of symbols.entries()) {
+      await trx
+        .updateTable('watchlist')
+        .set({ sort_order: index })
+        .where('group_id', '=', groupId)
+        .where('symbol', '=', symbol)
+        .execute();
+    }
+  });
+}

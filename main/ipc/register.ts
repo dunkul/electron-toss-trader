@@ -21,6 +21,7 @@ import {
   listWatchlistGroups,
   removeFromWatchlist,
   renameWatchlistGroup,
+  reorderWatchlist,
   type AddToWatchlistInput,
 } from '../db/repositories/watchlist';
 import { logger } from '../logger';
@@ -29,8 +30,13 @@ import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/accoun
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
-import type { TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
+import type { MarketTick, TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
+
+// 심볼별 최신 틱만 남겨뒀다가 이 주기로 한 번에 흘려보낸다 — 체결이 잦을 때 틱 하나마다
+// IPC를 보내면 렌더러가 매번 리렌더링해야 해서 부하가 커진다(관심종목/보유종목 화면 실측
+// 초당 20회 안팎). 버리지 않고 최신값만 유지하므로 화면에 표시되는 값이 밀리지는 않는다.
+const TICK_FLUSH_INTERVAL_MS = 200;
 
 export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketWsClient): void {
   ipcMain.handle(IPC_CHANNELS.ACCOUNTS_LIST, async () => {
@@ -105,6 +111,10 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
     await removeFromWatchlist(db, groupId, symbol);
   });
 
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REORDER, async (_event, groupId: number, symbols: string[]) => {
+    await reorderWatchlist(db, groupId, symbols);
+  });
+
   ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
 
   ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) =>
@@ -125,11 +135,25 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
     wsClient?.setSymbols(symbols);
   });
 
-  wsClient?.onTick((tick) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(IPC_CHANNELS.MARKET_TICK_EVENT, tick);
-    }
-  });
+  if (wsClient) {
+    const latestTicksBySymbol = new Map<string, MarketTick>();
+
+    wsClient.onTick((tick) => {
+      latestTicksBySymbol.set(tick.symbol, tick);
+    });
+
+    setInterval(() => {
+      if (latestTicksBySymbol.size === 0) return;
+      const ticks = [...latestTicksBySymbol.values()];
+      latestTicksBySymbol.clear();
+
+      for (const win of BrowserWindow.getAllWindows()) {
+        for (const tick of ticks) {
+          win.webContents.send(IPC_CHANNELS.MARKET_TICK_EVENT, tick);
+        }
+      }
+    }, TICK_FLUSH_INTERVAL_MS);
+  }
 
   ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
     notifySignal({

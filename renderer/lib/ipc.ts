@@ -45,6 +45,7 @@ const CHANNELS = {
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  WATCHLIST_REORDER: 'watchlist:reorder',
   WATCHLIST_GROUPS_LIST: 'watchlist-groups:list',
   WATCHLIST_GROUP_CREATE: 'watchlist-groups:create',
   WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',
@@ -119,6 +120,8 @@ export const api = {
     window.ipc.invoke<WatchlistRow>(CHANNELS.WATCHLIST_ADD, input),
   removeFromWatchlist: (groupId: number, symbol: string) =>
     window.ipc.invoke<void>(CHANNELS.WATCHLIST_REMOVE, groupId, symbol),
+  reorderWatchlist: (groupId: number, symbols: string[]) =>
+    window.ipc.invoke<void>(CHANNELS.WATCHLIST_REORDER, groupId, symbols),
 
   listWatchlistGroups: () => window.ipc.invoke<WatchlistGroupRow[]>(CHANNELS.WATCHLIST_GROUPS_LIST),
   createWatchlistGroup: (name: string) =>

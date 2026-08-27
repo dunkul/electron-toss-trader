@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Button, Card, Col, Row, Statistic, Table, Tabs } from 'antd';
+import { Alert, App, Button, Card, Col, Row, Segmented, Statistic, Table } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
-import RankingCard from '../components/RankingCard';
+import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import { api, onStrategySignal } from '../lib/ipc';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
-import type { AccountSummary, Holding, HoldingsSummary, StrategyRow, StrategySignalRow } from '../lib/ipc';
+import type { AccountSummary, Holding, HoldingsSummary, Market, StrategyRow, StrategySignalRow } from '../lib/ipc';
 
 function formatKrw(value: string): string {
   return `${Math.round(Number(value)).toLocaleString()}원`;
@@ -17,16 +17,16 @@ function formatKrw(value: string): string {
 
 export default function HomePage() {
   const { notification } = App.useApp();
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [holdingsSummary, setHoldingsSummary] = useState<HoldingsSummary | null>(null);
   const [strategies, setStrategies] = useState<StrategyRow[]>([]);
   const [signals, setSignals] = useState<StrategySignalRow[]>([]);
   const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
+  const [holdingsMarket, setHoldingsMarket] = useState<Market>('KR');
+  const rankingCardRef = useRef<RankingCardHandle>(null);
 
   const loadDashboard = useCallback(async () => {
-    setLoading(true);
     setError(null);
     try {
       const [accountList, strategyList, signalList] = await Promise.all([
@@ -44,8 +44,6 @@ export default function HomePage() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '대시보드 정보를 불러오지 못했습니다.');
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -63,6 +61,12 @@ export default function HomePage() {
       setHoldingsRefreshing(false);
     }
   }, [accounts]);
+
+  // 보유 종목/주식 랭킹 중 어느 쪽 새로고침을 눌러도 둘 다 새로고침되도록 맞춘다.
+  const handleHoldingsRefreshClick = useCallback(() => {
+    refreshHoldings();
+    rankingCardRef.current?.refresh();
+  }, [refreshHoldings]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 초기 로딩(표준 fetch-on-mount 패턴)
@@ -186,61 +190,37 @@ export default function HomePage() {
                 type="text"
                 size="small"
                 icon={<ReloadOutlined spin={holdingsRefreshing} />}
-                onClick={refreshHoldings}
+                onClick={handleHoldingsRefreshClick}
                 disabled={accounts.length === 0}
               />
             }
             style={{ marginBottom: 16, minWidth: 450 }}
           >
-            <Tabs
-              items={[
-                {
-                  key: 'kr',
-                  label: '국내주식',
-                  children: (
-                    <Table<Holding>
-                      size="small"
-                      rowKey="symbol"
-                      loading={loading}
-                      pagination={false}
-                      tableLayout="fixed"
-                      dataSource={krHoldings}
-                      locale={{
-                        emptyText: accounts.length
-                          ? '보유 종목이 없습니다.'
-                          : '계좌 정보를 불러오는 중입니다.',
-                      }}
-                      columns={holdingColumns}
-                    />
-                  ),
-                },
-                {
-                  key: 'us',
-                  label: '해외주식',
-                  children: (
-                    <Table<Holding>
-                      size="small"
-                      rowKey="symbol"
-                      loading={loading}
-                      pagination={false}
-                      tableLayout="fixed"
-                      dataSource={usHoldings}
-                      locale={{
-                        emptyText: accounts.length
-                          ? '보유 종목이 없습니다.'
-                          : '계좌 정보를 불러오는 중입니다.',
-                      }}
-                      columns={holdingColumns}
-                    />
-                  ),
-                },
+            <Segmented
+              value={holdingsMarket}
+              onChange={(value) => setHoldingsMarket(value as Market)}
+              options={[
+                { label: '국내', value: 'KR' },
+                { label: '해외', value: 'US' },
               ]}
+              style={{ marginBottom: 12 }}
+            />
+            <Table<Holding>
+              size="small"
+              rowKey="symbol"
+              pagination={false}
+              tableLayout="fixed"
+              dataSource={holdingsMarket === 'KR' ? krHoldings : usHoldings}
+              locale={{
+                emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
+              }}
+              columns={holdingColumns}
             />
           </Card>
         </Col>
 
         <Col xs={24} xl={12}>
-          <RankingCard />
+          <RankingCard ref={rankingCardRef} onRefresh={refreshHoldings} />
         </Col>
       </Row>
     </AppLayout>

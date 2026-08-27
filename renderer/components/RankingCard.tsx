@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { Button, Card, Segmented, Select, Space, Table, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
@@ -36,8 +36,17 @@ const RANKING_TYPE_OPTIONS = (Object.entries(RANKING_TYPE_LABELS) as [RankingTyp
   ([value, label]) => ({ value, label }),
 );
 
+export interface RankingCardHandle {
+  refresh: () => void;
+}
+
+export interface RankingCardProps {
+  /** 이 카드의 새로고침 버튼을 눌렀을 때 함께 실행할 콜백(예: 대시보드의 다른 카드 새로고침). */
+  onRefresh?: () => void;
+}
+
 /** 대시보드용 주식 랭킹 카드. 시장/랭킹종류/기간을 고르면 상위 10개 종목을 보여준다. */
-export default function RankingCard() {
+const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function RankingCard({ onRefresh }, ref) {
   const [market, setMarket] = useState<Market>('KR');
   const [type, setType] = useState<RankingType>('MARKET_TRADING_AMOUNT');
   const [duration, setDuration] = useState<RankingDuration>('realtime');
@@ -60,9 +69,15 @@ export default function RankingCard() {
   }, [market, type, duration]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 조건(시장/종류/기간) 변경 시 재조회하는 표준 fetch 패턴
     load();
   }, [load]);
+
+  useImperativeHandle(ref, () => ({ refresh: load }), [load]);
+
+  const handleRefreshClick = () => {
+    load();
+    onRefresh?.();
+  };
 
   const handleTypeChange = (value: RankingType) => {
     setType(value);
@@ -125,7 +140,7 @@ export default function RankingCard() {
               {new Date(rankedAt).toLocaleTimeString('ko-KR')} 기준
             </Text>
           )}
-          <Button type="text" size="small" icon={<ReloadOutlined spin={loading} />} onClick={load} />
+          <Button type="text" size="small" icon={<ReloadOutlined spin={loading} />} onClick={handleRefreshClick} />
         </Space>
       }
     >
@@ -151,7 +166,6 @@ export default function RankingCard() {
         <Table<RankingItem>
           size="small"
           rowKey="symbol"
-          loading={loading}
           pagination={false}
           dataSource={rankings}
           locale={{ emptyText: '집계된 랭킹이 없습니다.' }}
@@ -160,4 +174,6 @@ export default function RankingCard() {
       </Space>
     </Card>
   );
-}
+});
+
+export default RankingCard;

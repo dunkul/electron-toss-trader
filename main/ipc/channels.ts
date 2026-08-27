@@ -20,6 +20,7 @@ export const IPC_CHANNELS = {
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  WATCHLIST_REORDER: 'watchlist:reorder',
   WATCHLIST_GROUPS_LIST: 'watchlist-groups:list',
   WATCHLIST_GROUP_CREATE: 'watchlist-groups:create',
   WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',

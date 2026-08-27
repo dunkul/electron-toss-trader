@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Badge, Button, Card, Col, Row, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Col, Row, Statistic, Table, Tabs } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
+import RankingCard from '../components/RankingCard';
 import { api, onStrategySignal } from '../lib/ipc';
-import { formatAmount, formatRate, profitColor, signalColor } from '../lib/format';
+import { formatAmount, formatRate, profitColor } from '../lib/format';
 import type { AccountSummary, Holding, HoldingsSummary, StrategyRow, StrategySignalRow } from '../lib/ipc';
-
-const { Text } = Typography;
 
 function formatKrw(value: string): string {
   return `${Math.round(Number(value)).toLocaleString()}원`;
@@ -238,52 +237,10 @@ export default function HomePage() {
               ]}
             />
           </Card>
-
-          <Card title="감시 중인 전략">
-            <Table<StrategyRow>
-              size="small"
-              rowKey="id"
-              loading={loading}
-              pagination={false}
-              dataSource={activeStrategies}
-              locale={{ emptyText: '등록된 전략이 없습니다. 전략 화면에서 추가하세요.' }}
-              columns={[
-                { title: '이름', dataIndex: 'name' },
-                { title: '종목', dataIndex: 'symbol' },
-                { title: '유형', dataIndex: 'strategy_type' },
-                { title: '상태', render: () => <Badge status="processing" text="감시중" /> },
-              ]}
-            />
-          </Card>
         </Col>
 
         <Col xs={24} xl={12}>
-          <Card title="최근 알림">
-            <Table<StrategySignalRow>
-              size="small"
-              rowKey="id"
-              loading={loading}
-              pagination={false}
-              dataSource={signals}
-              locale={{ emptyText: '아직 발생한 신호가 없습니다.' }}
-              columns={[
-                {
-                  title: '시각',
-                  dataIndex: 'created_at',
-                  render: (value: string) => (
-                    <Text type="secondary">{new Date(value).toLocaleString('ko-KR')}</Text>
-                  ),
-                },
-                {
-                  title: '신호',
-                  dataIndex: 'signal',
-                  render: (value: string) => <Tag color={signalColor(value)}>{value}</Tag>,
-                },
-                { title: '가격', dataIndex: 'price', align: 'right' },
-                { title: '근거', dataIndex: 'reason', ellipsis: true },
-              ]}
-            />
-          </Card>
+          <RankingCard />
         </Col>
       </Row>
     </AppLayout>

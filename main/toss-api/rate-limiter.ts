@@ -8,6 +8,7 @@ export const API_GROUPS = {
   STOCK_ALL: 'STOCK_ALL',
   MARKET_DATA: 'MARKET_DATA',
   MARKET_DATA_CHART: 'MARKET_DATA_CHART',
+  RANKING: 'RANKING',
 } as const;
 
 export type ApiGroup = (typeof API_GROUPS)[keyof typeof API_GROUPS];
@@ -22,6 +23,9 @@ const RATE_LIMITS: Record<ApiGroup, number> = {
   [API_GROUPS.STOCK_ALL]: 1,
   [API_GROUPS.MARKET_DATA]: 15,
   [API_GROUPS.MARKET_DATA_CHART]: 20,
+  // openapi.json 문서에 RANKING 그룹의 정확한 TPS가 명시돼 있지 않아, 무거운 집계 조회임을
+  // 감안해 ACCOUNT보다는 여유롭고 STOCK_ALL보다는 빠듯한 값으로 보수적으로 잡는다.
+  [API_GROUPS.RANKING]: 5,
 };
 
 interface Bucket {

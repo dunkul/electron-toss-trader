@@ -5,4 +5,5 @@ export const TOSS_API_PATHS = {
   ACCOUNTS: '/api/v1/accounts',
   HOLDINGS: '/api/v1/holdings',
   STOCKS_ALL: '/api/v1/stocks/all',
+  RANKINGS: '/api/v1/rankings',
 } as const;

@@ -63,8 +63,8 @@ export const createWindow = (windowName: string, options: BrowserWindowConstruct
   state = ensureVisibleOnSomeDisplay(restore());
 
   const win = new BrowserWindow({
-    ...state,
     ...options,
+    ...state,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

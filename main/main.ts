@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import './env-setup';
 import path from 'path';
-import { app } from 'electron';
+import { app, Menu } from 'electron';
 import serve from 'electron-serve';
 import { createWindow } from './helpers/create-window';
 import { getDb } from './db/connection';
@@ -34,6 +34,8 @@ if (isProd) {
   }
 
   registerIpcHandlers(db, wsClient);
+
+  Menu.setApplicationMenu(null);
 
   const mainWindow = createWindow('main', {
     width: 1280,

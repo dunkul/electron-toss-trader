@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Badge, Card, Col, Row, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, App, Badge, Button, Card, Col, Row, Statistic, Table, Tabs, Tag, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
 import StockLogo from '../components/StockLogo';
 import { api, onStrategySignal } from '../lib/ipc';
-import { profitColors } from '../lib/theme';
+import { currencySymbol, formatAmount, formatRate, profitColor } from '../lib/format';
 import type { AccountSummary, Holding, HoldingsSummary, StrategyRow, StrategySignalRow } from '../lib/ipc';
 
 const { Text } = Typography;
@@ -20,24 +21,6 @@ function formatKrw(value: string): string {
   return `${Math.round(Number(value)).toLocaleString()}원`;
 }
 
-function formatRate(rate: string): string {
-  return `${(Number(rate) * 100).toFixed(2)}%`;
-}
-
-function formatAmount(value: string | number): string {
-  return Math.round(Number(value)).toLocaleString();
-}
-
-function currencySymbol(currency: string): string {
-  if (currency === 'KRW') return '₩';
-  if (currency === 'USD') return '$';
-  return currency;
-}
-
-function profitColor(value: number): string {
-  return value >= 0 ? profitColors.up : profitColors.down;
-}
-
 export default function HomePage() {
   const { notification } = App.useApp();
   const [loading, setLoading] = useState(true);
@@ -46,6 +29,7 @@ export default function HomePage() {
   const [holdingsSummary, setHoldingsSummary] = useState<HoldingsSummary | null>(null);
   const [strategies, setStrategies] = useState<StrategyRow[]>([]);
   const [signals, setSignals] = useState<StrategySignalRow[]>([]);
+  const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     setLoading(true);
@@ -70,6 +54,21 @@ export default function HomePage() {
       setLoading(false);
     }
   }, []);
+
+  const refreshHoldings = useCallback(async () => {
+    const account = accounts[0];
+    if (!account) return;
+    setHoldingsRefreshing(true);
+    try {
+      const summary = await api.getHoldings(String(account.accountSeq));
+      setHoldingsSummary(summary);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '보유 종목 정보를 불러오지 못했습니다.');
+    } finally {
+      setHoldingsRefreshing(false);
+    }
+  }, [accounts]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 초기 로딩(표준 fetch-on-mount 패턴)
@@ -102,10 +101,7 @@ export default function HomePage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <StockLogo symbol={record.symbol} />
           <div style={{ minWidth: 0 }}>
-            <div
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              title={value}
-            >
+            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
               {value}
             </div>
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -197,7 +193,7 @@ export default function HomePage() {
               title="평가손익 (원화 보유분)"
               value={holdingsSummary ? formatKrw(holdingsSummary.profitLoss.amount.krw) : '-'}
               suffix={holdingsSummary ? formatRate(holdingsSummary.profitLoss.rate) : undefined}
-              valueStyle={{ color: profitColor(profitLossKrw) }}
+              styles={{ content: { color: profitColor(profitLossKrw) } }}
             />
           </Card>
         </Col>
@@ -205,7 +201,19 @@ export default function HomePage() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="보유 종목" style={{ marginBottom: 16, minWidth: 450 }}>
+          <Card
+            title="보유 종목"
+            extra={
+              <Button
+                type="text"
+                size="small"
+                icon={<ReloadOutlined spin={holdingsRefreshing} />}
+                onClick={refreshHoldings}
+                disabled={accounts.length === 0}
+              />
+            }
+            style={{ marginBottom: 16, minWidth: 450 }}
+          >
             <Tabs
               items={[
                 {
@@ -220,7 +228,9 @@ export default function HomePage() {
                       tableLayout="fixed"
                       dataSource={krHoldings}
                       locale={{
-                        emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
+                        emptyText: accounts.length
+                          ? '보유 종목이 없습니다.'
+                          : '계좌 정보를 불러오는 중입니다.',
                       }}
                       columns={holdingColumns}
                     />
@@ -238,7 +248,9 @@ export default function HomePage() {
                       tableLayout="fixed"
                       dataSource={usHoldings}
                       locale={{
-                        emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
+                        emptyText: accounts.length
+                          ? '보유 종목이 없습니다.'
+                          : '계좌 정보를 불러오는 중입니다.',
                       }}
                       columns={holdingColumns}
                     />

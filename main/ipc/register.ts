@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { ipcMain } from 'electron';
+import { BrowserWindow, ipcMain } from 'electron';
 import {
   createStrategy,
   deleteStrategy,
@@ -23,9 +23,10 @@ import { notifySignal } from '../notify/notifier';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
+import type { TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
 
-export function registerIpcHandlers(db: DatabaseSync): void {
+export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsClient): void {
   ipcMain.handle(IPC_CHANNELS.ACCOUNTS_LIST, async () => {
     try {
       return await fetchAndCacheAccounts(db);
@@ -91,6 +92,16 @@ export function registerIpcHandlers(db: DatabaseSync): void {
 
   ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, (_event, symbol: string) => {
     removeFromWatchlist(db, symbol);
+  });
+
+  ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (_event, symbols: WsSymbolRef[]) => {
+    wsClient?.setSymbols(symbols);
+  });
+
+  wsClient?.onTick((tick) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send(IPC_CHANNELS.MARKET_TICK_EVENT, tick);
+    }
   });
 
   ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {

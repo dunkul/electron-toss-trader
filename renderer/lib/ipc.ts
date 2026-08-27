@@ -7,10 +7,12 @@ import type {
   StrategySignalRow,
   StrategyType,
   SystemLogRow,
+  TossExchange,
   WatchlistRow,
 } from '../../main/db/schema';
 import type { AccountSummary, Holding, HoldingsSummary } from '../../main/toss-api/endpoints/account';
 import type { Candle, CandleInterval, CandlesPage, PriceQuote } from '../../main/toss-api/endpoints/market';
+import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 
 // main/ipc/channels.ts의 채널 이름과 반드시 일치해야 한다.
@@ -34,7 +36,9 @@ const CHANNELS = {
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  MARKET_SUBSCRIBE: 'market:subscribe',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
+  MARKET_TICK_EVENT: 'market:tick',
 } as const;
 
 export interface StocksStatus {
@@ -42,7 +46,17 @@ export interface StocksStatus {
   lastSyncedAt: string | null;
 }
 
-export type { Market, StockRow, StrategyRow, StrategySignalRow, StrategyType, SystemLogRow, WatchlistRow };
+export type {
+  Market,
+  StockRow,
+  StrategyRow,
+  StrategySignalRow,
+  StrategyType,
+  SystemLogRow,
+  TossExchange,
+  WatchlistRow,
+};
+export type { MarketTick, WsSymbolRef };
 export type { AddToWatchlistInput };
 export type {
   AccountSummary,
@@ -88,8 +102,14 @@ export const api = {
   removeFromWatchlist: (symbol: string) => window.ipc.invoke<void>(CHANNELS.WATCHLIST_REMOVE, symbol),
 
   testNotification: () => window.ipc.invoke<void>(CHANNELS.NOTIFICATIONS_TEST),
+
+  subscribeMarket: (symbols: WsSymbolRef[]) => window.ipc.send(CHANNELS.MARKET_SUBSCRIBE, symbols),
 };
 
 export function onStrategySignal(callback: (payload: SignalNotification) => void): () => void {
   return window.ipc.on<SignalNotification>(CHANNELS.STRATEGY_SIGNAL_EVENT, callback);
+}
+
+export function onMarketTick(callback: (tick: MarketTick) => void): () => void {
+  return window.ipc.on<MarketTick>(CHANNELS.MARKET_TICK_EVENT, callback);
 }

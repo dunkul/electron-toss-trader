@@ -19,6 +19,9 @@ export const IPC_CHANNELS = {
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 실시간 구독할 종목 전체 목록을 매번 새로 선언(full-replace)
+  MARKET_SUBSCRIBE: 'market:subscribe',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
+  MARKET_TICK_EVENT: 'market:tick',
 } as const;

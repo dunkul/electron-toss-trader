@@ -10,6 +10,7 @@ import { registerIpcHandlers } from './ipc/register';
 import { logger } from './logger';
 import { hasTossApiCredentials } from './toss-api/config';
 import { ensureStocksCached } from './toss-api/stock-cache';
+import { TossMarketWsClient } from './toss-api/ws-client';
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -21,14 +22,18 @@ if (isProd) {
   await app.whenReady();
 
   const db = getDb();
-  registerIpcHandlers(db);
 
+  let wsClient: TossMarketWsClient | undefined;
   if (hasTossApiCredentials()) {
     new StrategyEngine(db).start();
+    wsClient = new TossMarketWsClient(db);
+    wsClient.start().catch((err: unknown) => logger.error({ err }, 'market ws client failed to start'));
     ensureStocksCached(db).catch((err: unknown) => logger.error({ err }, 'stock master sync failed'));
   } else {
     logger.warn('TOSS_CLIENT_ID/TOSS_CLIENT_SECRET가 설정되지 않아 전략 엔진을 시작하지 않았습니다.');
   }
+
+  registerIpcHandlers(db, wsClient);
 
   const mainWindow = createWindow('main', {
     width: 1280,

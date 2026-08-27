@@ -19,3 +19,7 @@ export function getTossApiConfig(): TossApiConfig {
 export function hasTossApiCredentials(): boolean {
   return Boolean(process.env.TOSS_CLIENT_ID && process.env.TOSS_CLIENT_SECRET);
 }
+
+export function getTossWsUrl(): string {
+  return process.env.TOSS_WS_URL || 'wss://openapi-ws.tossinvest.com/ws/v1';
+}

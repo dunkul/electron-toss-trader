@@ -7,3 +7,9 @@ export const appTheme: ThemeConfig = {
     borderRadius: 6,
   },
 };
+
+// 국내 증시 관례에 맞춰 상승은 빨강, 하락은 파랑으로 표시한다.
+export const profitColors = {
+  up: '#cf1322',
+  down: '#1765ad',
+} as const;

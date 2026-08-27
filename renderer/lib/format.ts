@@ -1,7 +1,11 @@
 import { profitColors, profitFlashColors } from './theme';
 
-export function formatAmount(value: string | number): string {
-  return Math.round(Number(value)).toLocaleString();
+// 원화는 소수점이 의미 없어 정수로 반올림하고, 그 외 통화(달러 등)는 등락폭이 1 미만인 경우가
+// 흔해 소수점 둘째 자리까지 보여준다(안 그러면 "-0"처럼 정보가 사라져 보임).
+export function formatAmount(value: string | number, currency: string): string {
+  const amount = Number(value);
+  if (currency === 'KRW') return Math.round(amount).toLocaleString();
+  return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function formatRate(rate: string | number): string {

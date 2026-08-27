@@ -14,6 +14,9 @@ const MAX_RECONNECT_BACKOFF_MS = 30_000;
 export interface MarketTick {
   symbol: string;
   lastPrice: string;
+  // 이 체결 1건의 체결 수량(누적 거래량이 아니다) — register.ts가 flush 주기 안에서 같은 심볼의
+  // 여러 틱을 합산해 renderer로 보내고, renderer는 그 값을 당일 누적 거래량에 더한다.
+  volume: string;
   currency: string;
   timestamp: string;
 }
@@ -170,14 +173,15 @@ export class TossMarketWsClient {
     if (type === 'message') {
       const { topic, data } = frame as {
         topic?: string;
-        data?: { price?: string; currency?: string; timestamp?: string };
+        data?: { price?: string; volume?: string; currency?: string; timestamp?: string };
       };
       // topic 형식: trade:{kr|us}:{symbol}
       const symbol = topic?.split(':')[2];
-      if (!symbol || !data?.price || !data.currency || !data.timestamp) return;
+      if (!symbol || !data?.price || !data.volume || !data.currency || !data.timestamp) return;
       const tick: MarketTick = {
         symbol,
         lastPrice: data.price,
+        volume: data.volume,
         currency: data.currency,
         timestamp: data.timestamp,
       };

@@ -31,8 +31,9 @@ import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
 import { formatAmount, formatRate, profitColor, profitFlashColor } from '../lib/format';
+import { profitColors } from '../lib/theme';
 import { useStockSearch } from '../hooks/useStockSearch';
-import { useMeasuredHeight } from '../hooks/useMeasuredHeight';
+import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import { api, onMarketTick } from '../lib/ipc';
 import type {
   AccountSummary,
@@ -48,10 +49,6 @@ import type {
 const HOLDINGS_TAB_KEY = 'holdings';
 
 const CANDLE_PAGE_SIZE = 200; // Toss API의 /candles는 한 번 요청에 최대 200개까지만 허용한다.
-
-// antd Table size="small" 헤더 행의 실제 렌더링 높이(기본 테마 기준 고정값) — scroll.y를 계산할 때
-// 측정된 컨테이너 높이에서 이만큼 빼서 헤더를 제외한 "행 영역"만큼만 스크롤 높이로 잡는다.
-const TABLE_HEADER_HEIGHT_SM = 40;
 
 const { Text } = Typography;
 
@@ -129,6 +126,8 @@ export default function MarketPage() {
   // 드래그로 순서 변경 중인 종목 심볼 — HTML5 드래그 이벤트끼리 데이터를 주고받는 용도라
   // 리렌더링을 유발할 필요가 없으므로 상태가 아니라 ref로 둔다.
   const dragSymbolRef = useRef<string | null>(null);
+  // 페이지 진입 시 보유종목 첫 종목 차트를 딱 한 번만 자동으로 열기 위한 가드.
+  const autoOpenedHoldingRef = useRef(false);
 
   // 관심종목 탭과 보유종목 탭이 같은 심볼을 가리킬 수 있어(watchlistPrices/referencePrices를
   // 공유하므로) 항상 병합만 하고 통째로 갈아엎지 않는다 — 한쪽 로딩이 다른 쪽 데이터를 지우면 안 된다.
@@ -261,19 +260,28 @@ export default function MarketPage() {
       if (selectedSymbolRef.current === tick.symbol) {
         setPrice(quote);
 
-        // 차트는 다시 그리지 않고, 오늘(마지막) 봉의 고가/저가/종가만 실시간으로 갱신한다.
+        // 차트는 다시 그리지 않고, 오늘(마지막) 봉의 고가/저가/종가/거래량만 실시간으로 갱신한다.
         const todayCandle = candlesRef.current[0];
         if (todayCandle) {
           const lastPrice = Number(tick.lastPrice);
           if (lastPrice > Number(todayCandle.highPrice)) todayCandle.highPrice = tick.lastPrice;
           if (lastPrice < Number(todayCandle.lowPrice)) todayCandle.lowPrice = tick.lastPrice;
           todayCandle.closePrice = tick.lastPrice;
+          // tick.volume은 이 flush 주기 동안의 체결량 합(register.ts가 합산해서 보냄) —
+          // 당일 누적 거래량이 아니라 "그만큼 늘었다"이므로 기존 값에 더한다.
+          todayCandle.volume = String(Number(todayCandle.volume) + Number(tick.volume));
+          const todayTime = Math.floor(new Date(todayCandle.timestamp).getTime() / 1000) as UTCTimestamp;
           seriesRef.current?.update({
-            time: Math.floor(new Date(todayCandle.timestamp).getTime() / 1000) as UTCTimestamp,
+            time: todayTime,
             open: Number(todayCandle.openPrice),
             high: Number(todayCandle.highPrice),
             low: Number(todayCandle.lowPrice),
             close: lastPrice,
+          });
+          volumeSeriesRef.current?.update({
+            time: todayTime,
+            value: Number(todayCandle.volume),
+            color: profitColor(lastPrice - Number(todayCandle.openPrice)),
           });
         }
       }
@@ -292,7 +300,16 @@ export default function MarketPage() {
       // 뒤죽박죽으로 보인다 — 크로스헤어 하단 날짜 라벨을 한국식(연-월-일) 순서로 고정한다.
       localization: { locale: 'ko-KR', dateFormat: 'yyyy년 MM월 dd일' },
     });
-    const series = chart.addSeries(CandlestickSeries);
+    // lightweight-charts 기본값은 상승=녹색/하락=빨강(서구권 관례)이라, 국내 증시 관례(상승=빨강/
+    // 하락=파랑)를 쓰는 앱 전역 profitColors와 맞춰 명시적으로 지정한다.
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: profitColors.up,
+      downColor: profitColors.down,
+      borderUpColor: profitColors.up,
+      borderDownColor: profitColors.down,
+      wickUpColor: profitColors.up,
+      wickDownColor: profitColors.down,
+    });
     chartApiRef.current = chart;
     seriesRef.current = series;
 
@@ -360,14 +377,14 @@ export default function MarketPage() {
 
   // 기준가(전일종가)가 아직 없으면(referencePrices 로딩 전/실패) 색상 없이 가격만 표시한다.
   const renderPriceBlock = useCallback(
-    (quote: PriceQuote, alignRight = false) => {
+    (quote: PriceQuote, alignRight = false, flash = true) => {
       const lastPrice = Number(quote.lastPrice);
       const referencePrice = referencePrices[quote.symbol];
       const hasReference = referencePrice !== undefined && referencePrice !== 0;
       const change = hasReference ? lastPrice - referencePrice : undefined;
       const rate = hasReference ? change! / referencePrice : undefined;
       const color = change !== undefined ? profitColor(change) : undefined;
-      const flashColor = change !== undefined ? profitFlashColor(change) : undefined;
+      const flashColor = flash && change !== undefined ? profitFlashColor(change) : undefined;
 
       return (
         <PriceBlock
@@ -375,7 +392,7 @@ export default function MarketPage() {
           main={lastPrice.toLocaleString()}
           secondary={
             change !== undefined && rate !== undefined
-              ? `${formatAmount(change)}(${formatRate(rate)})`
+              ? `${formatAmount(change, quote.currency)}(${formatRate(rate)})`
               : undefined
           }
           color={color}
@@ -523,6 +540,21 @@ export default function MarketPage() {
     [holdingsSummary, holdingMarkets, watchlist, loadSymbol],
   );
 
+  // 페이지에 처음 들어왔을 때 "내 보유종목" 탭이 기본으로 활성화되어 있으니, 보유종목이 있으면
+  // 그 첫 종목 차트를 자동으로 열어준다. holdingsSummary/holdingMarkets는 각각 비동기로
+  // 채워지므로 둘 다 준비될 때까지 렌더마다 다시 시도하되, 성공(또는 사용자가 이미 다른 종목을
+  // 선택)하면 다시는 끼어들지 않도록 한 번만 실행한다.
+  useEffect(() => {
+    if (autoOpenedHoldingRef.current || selected) return;
+    const first = holdingsSummary?.items[0];
+    const market = first ? holdingMarkets[first.symbol] : undefined;
+    if (first && market) {
+      autoOpenedHoldingRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 데이터 로딩 완료 시 1회 자동 선택(표준 fetch-on-mount 패턴)
+      loadSymbol({ symbol: first.symbol, name: first.name, market });
+    }
+  }, [holdingsSummary, holdingMarkets, selected, loadSymbol]);
+
   const handleTabChange = useCallback(
     (key: string) => {
       setActiveTabKey(key);
@@ -596,7 +628,7 @@ export default function MarketPage() {
   return (
     <AppLayout>
       <Head>
-        <title>시세/차트 - 토스증권 알림</title>
+        <title>시세/차트 - 토스 트레이더</title>
       </Head>
 
       {/* 뷰포트 높이에 맞춰 채우고, 관심종목 카드는 그 안에서 넘치는 만큼만 내부 스크롤되게 한다
@@ -735,10 +767,15 @@ export default function MarketPage() {
           <Card
             title={
               selected ? (
-                <StockCell name={selected.name} symbol={selected.symbol} market={selected.market} />
+                <StockCell
+                  name={selected.name}
+                  symbol={selected.symbol}
+                  market={selected.market}
+                  lineHeight={1.1}
+                />
               ) : undefined
             }
-            extra={selected && price ? renderPriceBlock(price, true) : undefined}
+            extra={selected && price ? renderPriceBlock(price, true, false) : undefined}
             style={{ display: selected ? 'block' : 'none' }}
           >
             <div style={{ position: 'relative' }}>
@@ -908,7 +945,7 @@ function WatchlistGroupPane({
             {
               title: '',
               key: 'actions',
-              width: 64,
+              width: 40,
               render: (_value, record) => (
                 <Popconfirm
                   title={`"${record.name}" 관심종목을 삭제할까요?`}

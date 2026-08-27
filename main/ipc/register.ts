@@ -139,7 +139,13 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
     const latestTicksBySymbol = new Map<string, MarketTick>();
 
     wsClient.onTick((tick) => {
-      latestTicksBySymbol.set(tick.symbol, tick);
+      // flush 주기(TICK_FLUSH_INTERVAL_MS) 안에 같은 심볼로 체결이 여러 번 오면 가격/시각은
+      // 최신 것만 보내면 되지만, volume은 "이 체결 1건의 체결량"이라 그냥 덮어쓰면 그 사이에
+      // 있었던 체결들의 거래량이 통째로 유실된다 — renderer가 당일 누적 거래량에 더할 수 있게
+      // 이 flush 주기 안에서는 합산해서 보낸다.
+      const prev = latestTicksBySymbol.get(tick.symbol);
+      const volume = prev ? String(Number(prev.volume) + Number(tick.volume)) : tick.volume;
+      latestTicksBySymbol.set(tick.symbol, { ...tick, volume });
     });
 
     setInterval(() => {

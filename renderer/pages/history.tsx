@@ -3,15 +3,10 @@ import Head from 'next/head';
 import { Button, Card, Segmented, Table, Tag, Typography } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
+import { signalColor } from '../lib/format';
 import type { StrategyRow, StrategySignalRow } from '../lib/ipc';
 
 const { Text } = Typography;
-
-function signalColor(signal: string): string {
-  if (signal === 'BUY') return 'green';
-  if (signal === 'SELL') return 'red';
-  return 'default';
-}
 
 function toCsv(rows: StrategySignalRow[], strategyNameById: Map<number, string>): string {
   const header = ['시각', '전략', '신호', '가격', '알림여부', '근거'];

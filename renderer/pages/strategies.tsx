@@ -17,7 +17,8 @@ import {
 } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
-import type { Market, StockRow, StrategyRow } from '../lib/ipc';
+import { useStockSearch } from '../hooks/useStockSearch';
+import type { Market, StrategyRow } from '../lib/ipc';
 
 interface PriceTargetFormValues {
   name: string;
@@ -37,8 +38,7 @@ export default function StrategiesPage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [symbolOptions, setSymbolOptions] = useState<StockRow[]>([]);
-  const [symbolQuery, setSymbolQuery] = useState('');
+  const { query: symbolQuery, setQuery: setSymbolQuery, options: symbolOptions } = useStockSearch(15);
 
   const loadStrategies = useCallback(async () => {
     setLoading(true);
@@ -53,20 +53,6 @@ export default function StrategiesPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 초기 로딩(표준 fetch-on-mount 패턴)
     loadStrategies();
   }, [loadStrategies]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (symbolQuery.length === 0) {
-        setSymbolOptions([]);
-        return;
-      }
-      api
-        .searchStocks(symbolQuery, 15)
-        .then(setSymbolOptions)
-        .catch(() => setSymbolOptions([]));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [symbolQuery]);
 
   const openCreateModal = () => {
     form.resetFields();

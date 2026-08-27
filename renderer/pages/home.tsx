@@ -4,18 +4,13 @@ import { Alert, App, Badge, Button, Card, Col, Row, Statistic, Table, Tabs, Tag,
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
-import StockLogo from '../components/StockLogo';
+import StockCell from '../components/StockCell';
+import PriceBlock from '../components/PriceBlock';
 import { api, onStrategySignal } from '../lib/ipc';
-import { currencySymbol, formatAmount, formatRate, profitColor } from '../lib/format';
+import { formatAmount, formatRate, profitColor, signalColor } from '../lib/format';
 import type { AccountSummary, Holding, HoldingsSummary, StrategyRow, StrategySignalRow } from '../lib/ipc';
 
 const { Text } = Typography;
-
-function signalColor(signal: string): string {
-  if (signal === 'BUY') return 'green';
-  if (signal === 'SELL') return 'red';
-  return 'default';
-}
 
 function formatKrw(value: string): string {
   return `${Math.round(Number(value)).toLocaleString()}원`;
@@ -97,19 +92,7 @@ export default function HomePage() {
       title: '종목',
       dataIndex: 'name',
       width: 170,
-      render: (value: string, record) => (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-          <StockLogo symbol={record.symbol} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>
-              {value}
-            </div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              ({record.symbol})
-            </Text>
-          </div>
-        </div>
-      ),
+      render: (value: string, record) => <StockCell name={value} symbol={record.symbol} />,
     },
     {
       title: '수량',
@@ -127,15 +110,12 @@ export default function HomePage() {
         const quantity = Number(record.quantity);
         const dailyChangePerShare = quantity > 0 ? Number(record.dailyProfitLoss.amount) / quantity : 0;
         return (
-          <div>
-            <div style={{ color: profitColor(dailyChangePerShare) }}>
-              {currencySymbol(record.currency)}
-              {Number(value).toLocaleString()}
-            </div>
-            <Text style={{ color: profitColor(dailyChangePerShare) }}>
-              {formatAmount(dailyChangePerShare)}({formatRate(record.dailyProfitLoss.rate)})
-            </Text>
-          </div>
+          <PriceBlock
+            currency={record.currency}
+            main={Number(value).toLocaleString()}
+            secondary={`${formatAmount(dailyChangePerShare)}(${formatRate(record.dailyProfitLoss.rate)})`}
+            color={profitColor(dailyChangePerShare)}
+          />
         );
       },
     },
@@ -147,13 +127,12 @@ export default function HomePage() {
       render: (value: Holding['profitLoss'], record) => {
         const amount = Number(value.amount);
         return (
-          <div>
-            <div style={{ color: profitColor(amount) }}>
-              {currencySymbol(record.currency)}
-              {formatAmount(value.amount)}
-            </div>
-            <Text style={{ color: profitColor(amount) }}>{formatRate(value.rate)}</Text>
-          </div>
+          <PriceBlock
+            currency={record.currency}
+            main={formatAmount(value.amount)}
+            secondary={formatRate(value.rate)}
+            color={profitColor(amount)}
+          />
         );
       },
     },

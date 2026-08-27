@@ -17,3 +17,9 @@ export function currencySymbol(currency: string): string {
   if (currency === 'USD') return '$';
   return currency;
 }
+
+export function signalColor(signal: string): string {
+  if (signal === 'BUY') return 'green';
+  if (signal === 'SELL') return 'red';
+  return 'default';
+}

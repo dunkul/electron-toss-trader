@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { key: '/settings', label: '설정', icon: <SettingOutlined /> },
 ];
 
+/** 모든 페이지의 공통 레이아웃(사이드바+헤더). `<AppLayout title="...">{내용}</AppLayout>` 형태로 감싸 쓴다. */
 export default function AppLayout({ children, title }: { children: ReactNode; title: string }) {
   const router = useRouter();
 

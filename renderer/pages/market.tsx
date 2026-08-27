@@ -11,8 +11,10 @@ import {
   type UTCTimestamp,
 } from 'lightweight-charts';
 import AppLayout from '../components/AppLayout';
-import StockLogo from '../components/StockLogo';
-import { currencySymbol, formatAmount, formatRate, profitColor } from '../lib/format';
+import StockCell from '../components/StockCell';
+import PriceBlock from '../components/PriceBlock';
+import { formatAmount, formatRate, profitColor } from '../lib/format';
+import { useStockSearch } from '../hooks/useStockSearch';
 import { api, onMarketTick } from '../lib/ipc';
 import type { Candle, PriceQuote, StockRow, TossExchange, WatchlistRow } from '../lib/ipc';
 
@@ -28,8 +30,7 @@ interface SelectedStock {
 
 export default function MarketPage() {
   const { message } = App.useApp();
-  const [query, setQuery] = useState('');
-  const [options, setOptions] = useState<StockRow[]>([]);
+  const { query, setQuery, options } = useStockSearch(15);
   const [selected, setSelected] = useState<SelectedStock | null>(null);
   const [price, setPrice] = useState<PriceQuote | null>(null);
   const [loadingChart, setLoadingChart] = useState(false);
@@ -151,20 +152,6 @@ export default function MarketPage() {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query.length === 0) {
-        setOptions([]);
-        return;
-      }
-      api
-        .searchStocks(query, 15)
-        .then(setOptions)
-        .catch(() => setOptions([]));
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  useEffect(() => {
     const container = chartContainerRef.current;
     if (!container) return;
 
@@ -221,25 +208,6 @@ export default function MarketPage() {
     );
   }, []);
 
-  // 대시보드 보유종목의 종목 셀과 같은 형태: 로고 + 종목명, 그 아래 작은 회색 글씨로 코드.
-  const renderStockCell = useCallback(
-    (name: string, symbol: string) => (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <StockLogo symbol={symbol} />
-        <div style={{ minWidth: 0 }}>
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={name}>
-            {name}
-          </div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            ({symbol})
-          </Text>
-        </div>
-      </div>
-    ),
-    [],
-  );
-
-  // 대시보드 보유종목의 현재가 셀과 같은 형태: 위에 등락색이 적용된 가격, 아래에 등락폭(등락률).
   // 기준가(전일종가)가 아직 없으면(referencePrices 로딩 전/실패) 색상 없이 가격만 표시한다.
   const renderPriceBlock = useCallback(
     (quote: PriceQuote, alignRight = false) => {
@@ -251,17 +219,13 @@ export default function MarketPage() {
       const color = change !== undefined ? profitColor(change) : undefined;
 
       return (
-        <div style={alignRight ? { textAlign: 'right' } : undefined}>
-          <div style={{ color }}>
-            {currencySymbol(quote.currency)}
-            {lastPrice.toLocaleString()}
-          </div>
-          {change !== undefined && rate !== undefined && (
-            <Text style={{ color, fontSize: 12 }}>
-              {formatAmount(change)}({formatRate(rate)})
-            </Text>
-          )}
-        </div>
+        <PriceBlock
+          currency={quote.currency}
+          main={lastPrice.toLocaleString()}
+          secondary={change !== undefined && rate !== undefined ? `${formatAmount(change)}(${formatRate(rate)})` : undefined}
+          color={color}
+          align={alignRight ? 'right' : undefined}
+        />
       );
     },
     [referencePrices],
@@ -271,7 +235,6 @@ export default function MarketPage() {
     async (stock: SelectedStock) => {
       setSelected(stock);
       setQuery('');
-      setOptions([]);
       setLoadingChart(true);
       activeSymbolRef.current = stock.symbol;
       try {
@@ -290,7 +253,7 @@ export default function MarketPage() {
         setLoadingChart(false);
       }
     },
-    [message, renderChart],
+    [message, renderChart, setQuery],
   );
 
   const handleLoadMore = useCallback(async () => {
@@ -389,7 +352,7 @@ export default function MarketPage() {
               title: '종목',
               key: 'symbol',
               render: (_value, record) => (
-                <a onClick={() => loadSymbol(record)}>{renderStockCell(record.name, record.symbol)}</a>
+                <a onClick={() => loadSymbol(record)}>{<StockCell name={record.name} symbol={record.symbol} />}</a>
               ),
             },
             { title: '마켓', dataIndex: 'market' },
@@ -437,7 +400,7 @@ export default function MarketPage() {
           createChart는 마운트 시 한 번만 실행되므로, 이 div가 조건부로 사라졌다 나타나면
           최초 마운트 시점에 container가 null이라 차트가 영영 생성되지 않는다. */}
       <Card
-        title={selected ? renderStockCell(selected.name, selected.symbol) : undefined}
+        title={selected ? <StockCell name={selected.name} symbol={selected.symbol} /> : undefined}
         extra={selected && price ? renderPriceBlock(price, true) : undefined}
         style={{ display: selected ? 'block' : 'none' }}
       >

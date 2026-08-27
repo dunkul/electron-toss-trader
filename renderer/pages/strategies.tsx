@@ -104,7 +104,7 @@ export default function StrategiesPage() {
   return (
     <AppLayout>
       <Head>
-        <title>전략 - 토스증권 알림</title>
+        <title>전략 - 토스 트레이더</title>
       </Head>
 
       <Space style={{ marginBottom: 16 }}>

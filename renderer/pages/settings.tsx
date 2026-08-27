@@ -60,7 +60,7 @@ export default function SettingsPage() {
   return (
     <AppLayout>
       <Head>
-        <title>설정 - 토스증권 알림</title>
+        <title>설정 - 토스 트레이더</title>
       </Head>
 
       <Card title="Open API 연결" style={{ marginBottom: 16 }}>

@@ -62,7 +62,7 @@ export default function HistoryPage() {
   return (
     <AppLayout>
       <Head>
-        <title>알림 내역 - 토스증권 알림</title>
+        <title>알림 내역 - 토스 트레이더</title>
       </Head>
 
       <Card

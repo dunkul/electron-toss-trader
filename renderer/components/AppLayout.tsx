@@ -40,7 +40,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             fontSize: 15,
           }}
         >
-          토스증권 알림
+          토스 트레이더
         </div>
         <Menu
           mode="inline"

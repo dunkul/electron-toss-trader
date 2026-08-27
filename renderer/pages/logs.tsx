@@ -31,7 +31,7 @@ export default function LogsPage() {
   return (
     <AppLayout>
       <Head>
-        <title>로그 - 토스증권 알림</title>
+        <title>로그 - 토스 트레이더</title>
       </Head>
 
       <Card

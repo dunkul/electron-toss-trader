@@ -60,7 +60,7 @@ export default function HistoryPage() {
   };
 
   return (
-    <AppLayout title="알림 내역">
+    <AppLayout>
       <Head>
         <title>알림 내역 - 토스증권 알림</title>
       </Head>

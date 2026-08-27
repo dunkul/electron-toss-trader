@@ -58,7 +58,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppLayout title="설정">
+    <AppLayout>
       <Head>
         <title>설정 - 토스증권 알림</title>
       </Head>

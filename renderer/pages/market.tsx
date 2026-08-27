@@ -20,6 +20,7 @@ import {
 import { DeleteOutlined, EditOutlined, HolderOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   CandlestickSeries,
+  HistogramSeries,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -111,6 +112,7 @@ export default function MarketPage() {
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const chartApiRef = useRef<IChartApi | null>(null);
   const activeSymbolRef = useRef<string | null>(null);
   // 차트에는 안 쓰이는 화면 상태가 아니라 렌더링용 원본 데이터라 ref로 보관한다(최신순/내림차순 그대로).
@@ -283,13 +285,27 @@ export default function MarketPage() {
     if (!container) return;
 
     const chart = createChart(container, {
-      height: 360,
+      height: 460,
       layout: { textColor: '#333' },
       grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+      // 기본 dateFormat('dd MMM \'yy')이 브라우저 로케일과 섞이면 "14 7월 26"처럼 순서가
+      // 뒤죽박죽으로 보인다 — 크로스헤어 하단 날짜 라벨을 한국식(연-월-일) 순서로 고정한다.
+      localization: { locale: 'ko-KR', dateFormat: 'yyyy년 MM월 dd일' },
     });
     const series = chart.addSeries(CandlestickSeries);
     chartApiRef.current = chart;
     seriesRef.current = series;
+
+    // 거래량 — 캔들과 같은 시간축을 쓰는 아래쪽 별도 패인(paneIndex 1)에 그린다. 가격 패인과
+    // 4:1 비율로 나눠 토스증권 차트의 "거래량" 서브패널과 비슷한 높이가 되게 한다.
+    const volumeSeries = chart.addSeries(
+      HistogramSeries,
+      { priceFormat: { type: 'volume' }, priceScaleId: 'volume' },
+      1,
+    );
+    volumeSeriesRef.current = volumeSeries;
+    chart.panes()[0]?.setStretchFactor(4);
+    chart.panes()[1]?.setStretchFactor(1);
 
     const handleResize = () => chart.applyOptions({ width: container.clientWidth });
     window.addEventListener('resize', handleResize);
@@ -331,6 +347,13 @@ export default function MarketPage() {
         high: Number(candle.highPrice),
         low: Number(candle.lowPrice),
         close: Number(candle.closePrice),
+      })),
+    );
+    volumeSeriesRef.current?.setData(
+      ascendingCandles.map((candle) => ({
+        time: Math.floor(new Date(candle.timestamp).getTime() / 1000) as UTCTimestamp,
+        value: Number(candle.volume),
+        color: profitColor(Number(candle.closePrice) - Number(candle.openPrice)),
       })),
     );
   }, []);
@@ -571,7 +594,7 @@ export default function MarketPage() {
   }, [renameTarget, renameValue, loadGroups, message]);
 
   return (
-    <AppLayout title="시세/차트">
+    <AppLayout>
       <Head>
         <title>시세/차트 - 토스증권 알림</title>
       </Head>

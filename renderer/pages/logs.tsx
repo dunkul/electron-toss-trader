@@ -29,7 +29,7 @@ export default function LogsPage() {
   );
 
   return (
-    <AppLayout title="로그">
+    <AppLayout>
       <Head>
         <title>로그 - 토스증권 알림</title>
       </Head>

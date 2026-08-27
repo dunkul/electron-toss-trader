@@ -102,7 +102,7 @@ export default function StrategiesPage() {
   };
 
   return (
-    <AppLayout title="전략 (알림 조건)">
+    <AppLayout>
       <Head>
         <title>전략 - 토스증권 알림</title>
       </Head>

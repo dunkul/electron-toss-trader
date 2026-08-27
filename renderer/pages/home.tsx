@@ -9,7 +9,14 @@ import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import { api, onStrategySignal } from '../lib/ipc';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
-import type { AccountSummary, Holding, HoldingsSummary, Market, StrategyRow, StrategySignalRow } from '../lib/ipc';
+import type {
+  AccountSummary,
+  Holding,
+  HoldingsSummary,
+  Market,
+  StrategyRow,
+  StrategySignalRow,
+} from '../lib/ipc';
 
 function formatKrw(value: string): string {
   return `${Math.round(Number(value)).toLocaleString()}원`;
@@ -142,7 +149,7 @@ export default function HomePage() {
   ];
 
   return (
-    <AppLayout title="대시보드">
+    <AppLayout>
       <Head>
         <title>대시보드 - 토스증권 알림</title>
       </Head>

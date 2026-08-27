@@ -1,4 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
+import type { Database } from '../../db/schema';
 import { upsertAccount } from '../../db/repositories/accounts';
 import { tossRequest } from '../http-client';
 import { TOSS_API_PATHS } from '../paths';
@@ -83,18 +84,18 @@ const EMPTY_HOLDINGS_SUMMARY: HoldingsSummary = {
   items: [],
 };
 
-export async function fetchAndCacheAccounts(db: DatabaseSync): Promise<AccountSummary[]> {
+export async function fetchAndCacheAccounts(db: Kysely<Database>): Promise<AccountSummary[]> {
   const response = await tossRequest<AccountsResponse>(db, API_GROUPS.ACCOUNT, TOSS_API_PATHS.ACCOUNTS);
   const accounts = response.result ?? [];
 
   for (const account of accounts) {
-    upsertAccount(db, { accountSeq: String(account.accountSeq), accountType: account.accountType });
+    await upsertAccount(db, { accountSeq: String(account.accountSeq), accountType: account.accountType });
   }
 
   return accounts;
 }
 
-export async function getHoldings(db: DatabaseSync, accountSeq: string): Promise<HoldingsSummary> {
+export async function getHoldings(db: Kysely<Database>, accountSeq: string): Promise<HoldingsSummary> {
   const response = await tossRequest<HoldingsResponse>(db, API_GROUPS.ASSET, TOSS_API_PATHS.HOLDINGS, {
     accountSeq,
   });

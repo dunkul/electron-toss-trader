@@ -1,20 +1,21 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { LogLevel, LogSource, SystemLogRow } from '../schema';
+import type { Kysely } from 'kysely';
+import type { Database, LogLevel, LogSource, SystemLogRow } from '../schema';
 
-export function insertSystemLog(
-  db: DatabaseSync,
+export async function insertSystemLog(
+  db: Kysely<Database>,
   input: { level: LogLevel; source: LogSource; message: string; context?: unknown },
-): void {
-  db.prepare('INSERT INTO system_logs (level, source, message, context_json) VALUES (?, ?, ?, ?)').run(
-    input.level,
-    input.source,
-    input.message,
-    input.context !== undefined ? JSON.stringify(input.context) : null,
-  );
+): Promise<void> {
+  await db
+    .insertInto('system_logs')
+    .values({
+      level: input.level,
+      source: input.source,
+      message: input.message,
+      context_json: input.context !== undefined ? JSON.stringify(input.context) : null,
+    })
+    .execute();
 }
 
-export function listRecentLogs(db: DatabaseSync, limit = 200): SystemLogRow[] {
-  return db
-    .prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as unknown as SystemLogRow[];
+export async function listRecentLogs(db: Kysely<Database>, limit = 200): Promise<SystemLogRow[]> {
+  return db.selectFrom('system_logs').selectAll().orderBy('created_at', 'desc').limit(limit).execute();
 }

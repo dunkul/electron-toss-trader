@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { Market } from '../../db/schema';
+import type { Kysely } from 'kysely';
+import type { Database, Market } from '../../db/schema';
 import { getStockNames } from '../../db/repositories/stocks';
 import { tossRequest } from '../http-client';
 import { TOSS_API_PATHS } from '../paths';
@@ -55,7 +55,7 @@ export interface GetRankingsParams {
 
 const EMPTY_RESULT: RankingResult = { rankedAt: null, rankings: [] };
 
-export async function getRankings(db: DatabaseSync, params: GetRankingsParams): Promise<RankingResult> {
+export async function getRankings(db: Kysely<Database>, params: GetRankingsParams): Promise<RankingResult> {
   const response = await tossRequest<RankingApiResponse>(db, API_GROUPS.RANKING, TOSS_API_PATHS.RANKINGS, {
     query: {
       type: params.type,
@@ -70,7 +70,7 @@ export async function getRankings(db: DatabaseSync, params: GetRankingsParams): 
   const result = response.result ?? EMPTY_RESULT;
   if (result.rankings.length === 0) return { rankedAt: result.rankedAt, rankings: [] };
 
-  const names = getStockNames(
+  const names = await getStockNames(
     db,
     result.rankings.map((item) => item.symbol),
   );

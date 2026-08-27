@@ -1,16 +1,26 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { AccountRow } from '../schema';
+import type { Kysely } from 'kysely';
+import type { AccountRow, Database } from '../schema';
 
-export function listAccounts(db: DatabaseSync): AccountRow[] {
-  return db.prepare('SELECT * FROM accounts ORDER BY id').all() as unknown as AccountRow[];
+export async function listAccounts(db: Kysely<Database>): Promise<AccountRow[]> {
+  return db.selectFrom('accounts').selectAll().orderBy('id').execute();
 }
 
-export function upsertAccount(
-  db: DatabaseSync,
+export async function upsertAccount(
+  db: Kysely<Database>,
   input: { accountSeq: string; alias?: string | null; accountType?: string | null },
-): void {
-  db.prepare(
-    `INSERT INTO accounts (account_seq, alias, account_type) VALUES (?, ?, ?)
-     ON CONFLICT(account_seq) DO UPDATE SET alias = excluded.alias, account_type = excluded.account_type`,
-  ).run(input.accountSeq, input.alias ?? null, input.accountType ?? null);
+): Promise<void> {
+  await db
+    .insertInto('accounts')
+    .values({
+      account_seq: input.accountSeq,
+      alias: input.alias ?? null,
+      account_type: input.accountType ?? null,
+    })
+    .onConflict((oc) =>
+      oc.column('account_seq').doUpdateSet({
+        alias: input.alias ?? null,
+        account_type: input.accountType ?? null,
+      }),
+    )
+    .execute();
 }

@@ -1,5 +1,6 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
 import { BrowserWindow, ipcMain } from 'electron';
+import type { Database } from '../db/schema';
 import {
   createStrategy,
   deleteStrategy,
@@ -31,7 +32,7 @@ import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cac
 import type { TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
 
-export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsClient): void {
+export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketWsClient): void {
   ipcMain.handle(IPC_CHANNELS.ACCOUNTS_LIST, async () => {
     try {
       return await fetchAndCacheAccounts(db);
@@ -59,8 +60,8 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     toggleStrategy(db, id, isActive),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_DELETE, (_event, id: number) => {
-    deleteStrategy(db, id);
+  ipcMain.handle(IPC_CHANNELS.STRATEGY_DELETE, async (_event, id: number) => {
+    await deleteStrategy(db, id);
   });
 
   ipcMain.handle(IPC_CHANNELS.SIGNALS_LIST, (_event, limit?: number) => listRecentSignals(db, limit));
@@ -71,14 +72,15 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     searchStocks(db, query, limit),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STOCKS_STATUS, () => ({
-    count: countStocks(db),
-    lastSyncedAt: getLastStocksSyncedAt(db),
-  }));
+  ipcMain.handle(IPC_CHANNELS.STOCKS_STATUS, async () => {
+    const [count, lastSyncedAt] = await Promise.all([countStocks(db), getLastStocksSyncedAt(db)]);
+    return { count, lastSyncedAt };
+  });
 
   ipcMain.handle(IPC_CHANNELS.STOCKS_REFRESH, async () => {
     await ensureStocksCached(db, true);
-    return { count: countStocks(db), lastSyncedAt: getLastStocksSyncedAt(db) };
+    const [count, lastSyncedAt] = await Promise.all([countStocks(db), getLastStocksSyncedAt(db)]);
+    return { count, lastSyncedAt };
   });
 
   ipcMain.handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) =>
@@ -99,8 +101,8 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     addToWatchlist(db, input),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, (_event, groupId: number, symbol: string) => {
-    removeFromWatchlist(db, groupId, symbol);
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, async (_event, groupId: number, symbol: string) => {
+    await removeFromWatchlist(db, groupId, symbol);
   });
 
   ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
@@ -109,12 +111,12 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     createWatchlistGroup(db, name),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, (_event, id: number, name: string) => {
-    renameWatchlistGroup(db, id, name);
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, async (_event, id: number, name: string) => {
+    await renameWatchlistGroup(db, id, name);
   });
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_DELETE, (_event, id: number) => {
-    deleteWatchlistGroup(db, id);
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_DELETE, async (_event, id: number) => {
+    await deleteWatchlistGroup(db, id);
   });
 
   ipcMain.handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));

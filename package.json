@@ -21,6 +21,7 @@
     "dotenv": "^17.4.2",
     "electron-serve": "^3.0.0",
     "electron-store": "^11.0.2",
+    "kysely": "^0.29.5",
     "lightweight-charts": "^5.2.1",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",

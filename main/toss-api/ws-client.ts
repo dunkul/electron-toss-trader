@@ -1,6 +1,6 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
 import { WebSocket } from 'ws';
-import type { TossExchange } from '../db/schema';
+import type { Database, TossExchange } from '../db/schema';
 import { logger } from '../logger';
 import { getTossWsUrl } from './config';
 import { getAccessToken } from './token-manager';
@@ -46,7 +46,7 @@ export class TossMarketWsClient {
   private stopped = true;
   private readonly listeners = new Set<MarketTickListener>();
 
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Kysely<Database>) {}
 
   onTick(listener: MarketTickListener): () => void {
     this.listeners.add(listener);

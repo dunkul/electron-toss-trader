@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { StrategyRow } from '../db/schema';
+import type { Kysely } from 'kysely';
+import type { Database, StrategyRow } from '../db/schema';
 import { insertSystemLog } from '../db/repositories/logs';
 import { getLastSignal, recordSignal } from '../db/repositories/signals';
 import { listActiveStrategies } from '../db/repositories/strategies';
@@ -14,7 +14,7 @@ export class StrategyEngine {
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly runningStrategyIds = new Set<number>();
 
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: Kysely<Database>) {}
 
   start(): void {
     if (this.timer) return;
@@ -30,7 +30,7 @@ export class StrategyEngine {
   }
 
   private async tick(): Promise<void> {
-    const strategies = listActiveStrategies(this.db);
+    const strategies = await listActiveStrategies(this.db);
     if (strategies.length === 0) return;
 
     const symbols = [...new Set(strategies.map((s) => s.symbol))];
@@ -46,14 +46,14 @@ export class StrategyEngine {
 
       this.runningStrategyIds.add(strategy.id);
       try {
-        this.evaluateStrategy(strategy, currentPrice);
+        await this.evaluateStrategy(strategy, currentPrice);
       } finally {
         this.runningStrategyIds.delete(strategy.id);
       }
     }
   }
 
-  private evaluateStrategy(strategy: StrategyRow, currentPrice: number): void {
+  private async evaluateStrategy(strategy: StrategyRow, currentPrice: number): Promise<void> {
     const strategyModule = STRATEGY_REGISTRY[strategy.strategy_type];
     if (!strategyModule) {
       logger.warn({ strategyType: strategy.strategy_type }, 'no strategy module registered, skipping');
@@ -63,9 +63,9 @@ export class StrategyEngine {
     const result = strategyModule.evaluate({ strategy, currentPrice });
     if (result.signal === 'HOLD') return;
 
-    const shouldNotify = this.isCooldownElapsed(strategy);
+    const shouldNotify = await this.isCooldownElapsed(strategy);
 
-    recordSignal(this.db, {
+    await recordSignal(this.db, {
       strategyId: strategy.id,
       signal: result.signal,
       reason: result.reason,
@@ -85,7 +85,7 @@ export class StrategyEngine {
       });
     }
 
-    insertSystemLog(this.db, {
+    await insertSystemLog(this.db, {
       level: 'INFO',
       source: 'engine',
       message: `${strategy.name}: ${result.signal} 신호 발생`,
@@ -93,8 +93,8 @@ export class StrategyEngine {
     });
   }
 
-  private isCooldownElapsed(strategy: StrategyRow): boolean {
-    const last = getLastSignal(this.db, strategy.id);
+  private async isCooldownElapsed(strategy: StrategyRow): Promise<boolean> {
+    const last = await getLastSignal(this.db, strategy.id);
     if (!last) return true;
     const elapsedSec = (Date.now() - new Date(last.created_at).getTime()) / 1000;
     return elapsedSec >= strategy.cooldown_sec;

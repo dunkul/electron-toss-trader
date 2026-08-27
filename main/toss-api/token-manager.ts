@@ -1,4 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
+import type { Database } from '../db/schema';
 import { getValidToken, saveToken } from '../db/repositories/oauth-tokens';
 import { logger } from '../logger';
 import { getTossApiConfig } from './config';
@@ -14,9 +15,9 @@ interface TokenResponse {
   expires_in: number;
 }
 
-export async function getAccessToken(db: DatabaseSync, forceRefresh = false): Promise<string> {
+export async function getAccessToken(db: Kysely<Database>, forceRefresh = false): Promise<string> {
   if (!forceRefresh) {
-    const cached = getValidToken(db);
+    const cached = await getValidToken(db);
     if (cached) return cached.access_token;
   }
 
@@ -45,7 +46,7 @@ export async function getAccessToken(db: DatabaseSync, forceRefresh = false): Pr
   const data = (await res.json()) as TokenResponse;
   const expiresAt = new Date(Date.now() + data.expires_in * 1000 - TOKEN_SAFETY_MARGIN_MS).toISOString();
 
-  saveToken(db, { accessToken: data.access_token, tokenType: data.token_type, expiresAt });
+  await saveToken(db, { accessToken: data.access_token, tokenType: data.token_type, expiresAt });
 
   return data.access_token;
 }

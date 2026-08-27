@@ -1,4 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
+import type { Database } from '../db/schema';
 import { insertSystemLog } from '../db/repositories/logs';
 import { logger } from '../logger';
 import { getTossApiConfig } from './config';
@@ -29,7 +30,7 @@ async function parseErrorPayload(res: Response): Promise<TossApiErrorPayload | u
 }
 
 export async function tossRequest<T>(
-  db: DatabaseSync,
+  db: Kysely<Database>,
   group: ApiGroup,
   path: string,
   options: RequestOptions = {},
@@ -75,7 +76,7 @@ export async function tossRequest<T>(
 
     if (!res.ok) {
       const payload = await parseErrorPayload(res);
-      insertSystemLog(db, {
+      await insertSystemLog(db, {
         level: 'ERROR',
         source: 'api',
         message: `${group} ${path} failed: ${payload?.message ?? res.status}`,

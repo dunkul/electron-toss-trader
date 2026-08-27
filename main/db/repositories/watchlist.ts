@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { TossExchange, WatchlistGroupRow, WatchlistRow } from '../schema';
+import type { Kysely } from 'kysely';
+import type { Database, TossExchange, WatchlistGroupRow, WatchlistRow } from '../schema';
 
 export interface AddToWatchlistInput {
   groupId: number;
@@ -8,53 +8,64 @@ export interface AddToWatchlistInput {
   market: TossExchange;
 }
 
-export function listWatchlistGroups(db: DatabaseSync): WatchlistGroupRow[] {
-  return db
-    .prepare('SELECT * FROM watchlist_groups ORDER BY sort_order, id')
-    .all() as unknown as WatchlistGroupRow[];
+export async function listWatchlistGroups(db: Kysely<Database>): Promise<WatchlistGroupRow[]> {
+  return db.selectFrom('watchlist_groups').selectAll().orderBy('sort_order').orderBy('id').execute();
 }
 
-export function createWatchlistGroup(db: DatabaseSync, name: string): WatchlistGroupRow {
-  const { maxOrder } = db
-    .prepare('SELECT COALESCE(MAX(sort_order), -1) AS maxOrder FROM watchlist_groups')
-    .get() as { maxOrder: number };
-
-  const { lastInsertRowid } = db
-    .prepare('INSERT INTO watchlist_groups (name, sort_order) VALUES (?, ?)')
-    .run(name, maxOrder + 1);
-
-  return db.prepare('SELECT * FROM watchlist_groups WHERE id = ?').get(lastInsertRowid) as unknown as WatchlistGroupRow;
-}
-
-export function renameWatchlistGroup(db: DatabaseSync, id: number, name: string): void {
-  db.prepare('UPDATE watchlist_groups SET name = ? WHERE id = ?').run(name, id);
-}
-
-export function deleteWatchlistGroup(db: DatabaseSync, id: number): void {
-  db.prepare('DELETE FROM watchlist_groups WHERE id = ?').run(id);
-}
-
-export function listWatchlist(db: DatabaseSync): WatchlistRow[] {
-  return db
-    .prepare('SELECT * FROM watchlist ORDER BY group_id, sort_order, created_at')
-    .all() as unknown as WatchlistRow[];
-}
-
-export function addToWatchlist(db: DatabaseSync, input: AddToWatchlistInput): WatchlistRow {
-  const { maxOrder } = db
-    .prepare('SELECT COALESCE(MAX(sort_order), -1) AS maxOrder FROM watchlist WHERE group_id = ?')
-    .get(input.groupId) as { maxOrder: number };
-
-  db.prepare(
-    `INSERT INTO watchlist (group_id, symbol, name, market, sort_order) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(group_id, symbol) DO UPDATE SET name = excluded.name, market = excluded.market`,
-  ).run(input.groupId, input.symbol, input.name, input.market, maxOrder + 1);
+export async function createWatchlistGroup(db: Kysely<Database>, name: string): Promise<WatchlistGroupRow> {
+  const { maxOrder } = await db
+    .selectFrom('watchlist_groups')
+    .select((eb) => eb.fn.coalesce(eb.fn.max('sort_order'), eb.val(-1)).as('maxOrder'))
+    .executeTakeFirstOrThrow();
 
   return db
-    .prepare('SELECT * FROM watchlist WHERE group_id = ? AND symbol = ?')
-    .get(input.groupId, input.symbol) as unknown as WatchlistRow;
+    .insertInto('watchlist_groups')
+    .values({ name, sort_order: Number(maxOrder) + 1 })
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
-export function removeFromWatchlist(db: DatabaseSync, groupId: number, symbol: string): void {
-  db.prepare('DELETE FROM watchlist WHERE group_id = ? AND symbol = ?').run(groupId, symbol);
+export async function renameWatchlistGroup(db: Kysely<Database>, id: number, name: string): Promise<void> {
+  await db.updateTable('watchlist_groups').set({ name }).where('id', '=', id).execute();
+}
+
+export async function deleteWatchlistGroup(db: Kysely<Database>, id: number): Promise<void> {
+  await db.deleteFrom('watchlist_groups').where('id', '=', id).execute();
+}
+
+export async function listWatchlist(db: Kysely<Database>): Promise<WatchlistRow[]> {
+  return db
+    .selectFrom('watchlist')
+    .selectAll()
+    .orderBy('group_id')
+    .orderBy('sort_order')
+    .orderBy('created_at')
+    .execute();
+}
+
+export async function addToWatchlist(db: Kysely<Database>, input: AddToWatchlistInput): Promise<WatchlistRow> {
+  const { maxOrder } = await db
+    .selectFrom('watchlist')
+    .select((eb) => eb.fn.coalesce(eb.fn.max('sort_order'), eb.val(-1)).as('maxOrder'))
+    .where('group_id', '=', input.groupId)
+    .executeTakeFirstOrThrow();
+
+  return db
+    .insertInto('watchlist')
+    .values({
+      group_id: input.groupId,
+      symbol: input.symbol,
+      name: input.name,
+      market: input.market,
+      sort_order: Number(maxOrder) + 1,
+    })
+    .onConflict((oc) =>
+      oc.columns(['group_id', 'symbol']).doUpdateSet({ name: input.name, market: input.market }),
+    )
+    .returningAll()
+    .executeTakeFirstOrThrow();
+}
+
+export async function removeFromWatchlist(db: Kysely<Database>, groupId: number, symbol: string): Promise<void> {
+  await db.deleteFrom('watchlist').where('group_id', '=', groupId).where('symbol', '=', symbol).execute();
 }

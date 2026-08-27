@@ -1,5 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
-import type { Signal, StrategySignalRow } from '../schema';
+import type { Kysely } from 'kysely';
+import type { Database, Signal, StrategySignalRow } from '../schema';
 
 export interface RecordSignalInput {
   strategyId: number;
@@ -9,27 +9,33 @@ export interface RecordSignalInput {
   notified: boolean;
 }
 
-export function recordSignal(db: DatabaseSync, input: RecordSignalInput): StrategySignalRow {
-  const result = db
-    .prepare(
-      `INSERT INTO strategy_signals (strategy_id, signal, reason, price, notified)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(input.strategyId, input.signal, input.reason ?? null, input.price ?? null, input.notified ? 1 : 0);
-
+export async function recordSignal(db: Kysely<Database>, input: RecordSignalInput): Promise<StrategySignalRow> {
   return db
-    .prepare('SELECT * FROM strategy_signals WHERE id = ?')
-    .get(Number(result.lastInsertRowid)) as unknown as StrategySignalRow;
+    .insertInto('strategy_signals')
+    .values({
+      strategy_id: input.strategyId,
+      signal: input.signal,
+      reason: input.reason ?? null,
+      price: input.price ?? null,
+      notified: input.notified ? 1 : 0,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
-export function getLastSignal(db: DatabaseSync, strategyId: number): StrategySignalRow | undefined {
+export async function getLastSignal(
+  db: Kysely<Database>,
+  strategyId: number,
+): Promise<StrategySignalRow | undefined> {
   return db
-    .prepare('SELECT * FROM strategy_signals WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1')
-    .get(strategyId) as unknown as StrategySignalRow | undefined;
+    .selectFrom('strategy_signals')
+    .selectAll()
+    .where('strategy_id', '=', strategyId)
+    .orderBy('created_at', 'desc')
+    .limit(1)
+    .executeTakeFirst();
 }
 
-export function listRecentSignals(db: DatabaseSync, limit = 100): StrategySignalRow[] {
-  return db
-    .prepare('SELECT * FROM strategy_signals ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as unknown as StrategySignalRow[];
+export async function listRecentSignals(db: Kysely<Database>, limit = 100): Promise<StrategySignalRow[]> {
+  return db.selectFrom('strategy_signals').selectAll().orderBy('created_at', 'desc').limit(limit).execute();
 }

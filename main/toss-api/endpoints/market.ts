@@ -1,4 +1,5 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Kysely } from 'kysely';
+import type { Database } from '../../db/schema';
 import { tossRequest } from '../http-client';
 import { TOSS_API_PATHS } from '../paths';
 import { API_GROUPS } from '../rate-limiter';
@@ -16,7 +17,7 @@ interface PricesResponse {
   result: PriceQuote[];
 }
 
-export async function getPrices(db: DatabaseSync, symbols: string[]): Promise<PriceQuote[]> {
+export async function getPrices(db: Kysely<Database>, symbols: string[]): Promise<PriceQuote[]> {
   const response = await tossRequest<PricesResponse>(db, API_GROUPS.MARKET_DATA, TOSS_API_PATHS.PRICES, {
     query: { symbols: symbols.join(',') },
   });
@@ -49,7 +50,7 @@ const EMPTY_CANDLES_PAGE: CandlesPage = { candles: [], nextBefore: null };
 // count는 한 번 요청에 최대 200까지만 허용된다(그 이상은 400 에러). 더 긴 과거 데이터가
 // 필요하면 이번 응답의 nextBefore를 다음 호출의 before로 넘겨 이어서 조회한다(커서 페이지네이션).
 export async function getCandles(
-  db: DatabaseSync,
+  db: Kysely<Database>,
   params: { symbol: string; interval: CandleInterval; count?: number; before?: string },
 ): Promise<CandlesPage> {
   const response = await tossRequest<CandlesResponse>(db, API_GROUPS.MARKET_DATA_CHART, TOSS_API_PATHS.CANDLES, {

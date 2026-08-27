@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import Head from 'next/head';
 import {
   App,
   AutoComplete,
   Button,
   Card,
+  Col,
   Empty,
   Input,
   Modal,
   Popconfirm,
+  Row,
   Spin,
   Table,
   Tabs,
@@ -27,8 +29,9 @@ import {
 import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
-import { formatAmount, formatRate, profitColor } from '../lib/format';
+import { formatAmount, formatRate, profitColor, profitFlashColor } from '../lib/format';
 import { useStockSearch } from '../hooks/useStockSearch';
+import { useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import { api, onMarketTick } from '../lib/ipc';
 import type {
   AccountSummary,
@@ -44,6 +47,10 @@ import type {
 const HOLDINGS_TAB_KEY = 'holdings';
 
 const CANDLE_PAGE_SIZE = 200; // Toss API의 /candles는 한 번 요청에 최대 200개까지만 허용한다.
+
+// antd Table size="small" 헤더 행의 실제 렌더링 높이(기본 테마 기준 고정값) — scroll.y를 계산할 때
+// 측정된 컨테이너 높이에서 이만큼 빼서 헤더를 제외한 "행 영역"만큼만 스크롤 높이로 잡는다.
+const TABLE_HEADER_HEIGHT_SM = 40;
 
 const { Text } = Typography;
 
@@ -64,6 +71,8 @@ interface HoldingWatchRow {
 export default function MarketPage() {
   const { message } = App.useApp();
   const { query, setQuery, options } = useStockSearch(15);
+  // 내 보유종목 탭의 테이블 높이 측정 — 그룹 탭들은 각자 WatchlistGroupPane 안에서 별도로 측정한다.
+  const [holdingsTableWrapRef, holdingsTableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
   const [selected, setSelected] = useState<SelectedStock | null>(null);
   const [price, setPrice] = useState<PriceQuote | null>(null);
   const [loadingChart, setLoadingChart] = useState(false);
@@ -183,7 +192,9 @@ export default function MarketPage() {
         if (symbols.length > 0) {
           api
             .getStocksBySymbols(symbols)
-            .then((rows) => setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))))
+            .then((rows) =>
+              setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))),
+            )
             .catch(() => setHoldingMarkets({}));
         } else {
           setHoldingMarkets({});
@@ -333,14 +344,20 @@ export default function MarketPage() {
       const change = hasReference ? lastPrice - referencePrice : undefined;
       const rate = hasReference ? change! / referencePrice : undefined;
       const color = change !== undefined ? profitColor(change) : undefined;
+      const flashColor = change !== undefined ? profitFlashColor(change) : undefined;
 
       return (
         <PriceBlock
           currency={quote.currency}
           main={lastPrice.toLocaleString()}
-          secondary={change !== undefined && rate !== undefined ? `${formatAmount(change)}(${formatRate(rate)})` : undefined}
+          secondary={
+            change !== undefined && rate !== undefined
+              ? `${formatAmount(change)}(${formatRate(rate)})`
+              : undefined
+          }
           color={color}
           align={alignRight ? 'right' : undefined}
+          flashColor={flashColor}
         />
       );
     },
@@ -444,10 +461,15 @@ export default function MarketPage() {
 
       setWatchlist((prev) => [...prev.filter((row) => row.group_id !== groupId), ...reordered]);
 
-      api.reorderWatchlist(groupId, reordered.map((row) => row.symbol)).catch(() => {
-        message.error('순서 변경에 실패했습니다.');
-        loadWatchlist();
-      });
+      api
+        .reorderWatchlist(
+          groupId,
+          reordered.map((row) => row.symbol),
+        )
+        .catch(() => {
+          message.error('순서 변경에 실패했습니다.');
+          loadWatchlist();
+        });
     },
     [watchlist, loadWatchlist, message],
   );
@@ -554,180 +576,164 @@ export default function MarketPage() {
         <title>시세/차트 - 토스증권 알림</title>
       </Head>
 
-      <Card title="관심종목" style={{ marginBottom: 16 }}>
-        <Tabs
-          type="editable-card"
-          hideAdd={false}
-          activeKey={displayedTabKey}
-          onChange={handleTabChange}
-          onEdit={handleTabEdit}
-          addIcon={<PlusOutlined />}
-          items={[
-            {
-              key: HOLDINGS_TAB_KEY,
-              label: '내 보유종목',
-              closable: false,
-              children: (
-                <Table<HoldingWatchRow>
-                  rowKey="symbol"
-                  size="small"
-                  loading={holdingsLoading}
-                  dataSource={(holdingsSummary?.items ?? []).map((item) => ({
-                    symbol: item.symbol,
-                    name: item.name,
-                    market: holdingMarkets[item.symbol],
-                  }))}
-                  pagination={false}
-                  locale={{
-                    emptyText: accounts.length
-                      ? '보유 종목이 없습니다.'
-                      : '계좌 정보를 불러오는 중이거나 연결된 계좌가 없습니다.',
-                  }}
-                  columns={[
-                    {
-                      title: '종목',
-                      key: 'symbol',
-                      render: (_value, record) => (
-                        <a
-                          onClick={() => {
-                            if (!record.market) {
-                              message.error(
-                                '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
-                              );
-                              return;
-                            }
-                            loadSymbol({ symbol: record.symbol, name: record.name, market: record.market });
-                          }}
-                        >
-                          <StockCell name={record.name} symbol={record.symbol} />
-                        </a>
-                      ),
-                    },
-                    { title: '마켓', key: 'market', render: (_value, record) => record.market ?? '-' },
-                    {
-                      title: '현재가',
-                      key: 'price',
-                      align: 'right',
-                      render: (_value, record) => {
-                        const quote = watchlistPrices[record.symbol];
-                        return quote ? renderPriceBlock(quote) : '-';
-                      },
-                    },
-                  ]}
-                />
-              ),
-            },
-            ...groups.map((group) => ({
-              key: String(group.id),
-              label: (
-                <span>
-                  {group.name}
-                  <EditOutlined
-                    style={{ marginLeft: 8 }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setRenameTarget(group);
-                      setRenameValue(group.name);
-                    }}
-                  />
-                </span>
-              ),
-              children: (
-                <>
-                  <AutoComplete
-                    style={{ width: 320, marginBottom: 12 }}
-                    placeholder="종목명 또는 코드 검색"
-                    value={displayedTabKey === String(group.id) ? query : ''}
-                    onChange={setQuery}
-                    options={options.map((stock) => ({
-                      value: stock.symbol,
-                      label: `${stock.name} (${stock.symbol})`,
-                    }))}
-                    onSelect={(value: string) => {
-                      const stock = options.find((item) => item.symbol === value);
-                      if (stock) handleSelectFromSearch(stock, group.id);
-                    }}
-                  />
-                  {displayedTabKey === String(group.id) && query.length > 0 && options.length === 0 && (
-                    <Text type="secondary" style={{ marginLeft: 12 }}>
-                      검색 결과가 없습니다. 설정 화면에서 종목 캐시 동기화 상태를 확인하세요.
-                    </Text>
-                  )}
-                  <Table<WatchlistRow>
-                    rowKey="id"
-                    size="small"
-                    dataSource={watchlist.filter((row) => row.group_id === group.id)}
-                    pagination={false}
-                    locale={{ emptyText: '종목을 검색해서 선택하면 이 탭에 저장됩니다.' }}
-                    onRow={(record) => ({
-                      draggable: true,
-                      onDragStart: () => {
-                        dragSymbolRef.current = record.symbol;
-                      },
-                      onDragOver: (event) => event.preventDefault(),
-                      onDrop: () => {
-                        if (dragSymbolRef.current) reorderGroup(group.id, dragSymbolRef.current, record.symbol);
-                        dragSymbolRef.current = null;
-                      },
-                      onDragEnd: () => {
-                        dragSymbolRef.current = null;
-                      },
-                    })}
-                    columns={[
-                      {
-                        title: '',
-                        key: 'drag',
-                        width: 32,
-                        render: () => <HolderOutlined style={{ cursor: 'grab', color: 'rgba(0,0,0,0.35)' }} />,
-                      },
-                      {
-                        title: '종목',
-                        key: 'symbol',
-                        render: (_value, record) => (
-                          <a onClick={() => loadSymbol(record)}>
-                            {<StockCell name={record.name} symbol={record.symbol} />}
-                          </a>
-                        ),
-                      },
-                      { title: '마켓', dataIndex: 'market' },
-                      {
-                        title: '현재가',
-                        key: 'price',
-                        align: 'right',
-                        render: (_value, record) => {
-                          const quote = watchlistPrices[record.symbol];
-                          return quote ? renderPriceBlock(quote) : '-';
-                        },
-                      },
-                      {
-                        title: '',
-                        key: 'actions',
-                        width: 64,
-                        render: (_value, record) => (
-                          <Popconfirm
-                            title={`"${record.name}" 관심종목을 삭제할까요?`}
-                            onConfirm={() => handleRemove(group.id, record.symbol)}
-                            okText="삭제"
-                            cancelText="취소"
-                          >
-                            <Button
-                              type="text"
-                              danger
-                              size="small"
-                              icon={<DeleteOutlined />}
-                              disabled={watchlistBusy}
-                            />
-                          </Popconfirm>
-                        ),
-                      },
-                    ]}
-                  />
-                </>
-              ),
-            })),
-          ]}
-        />
-      </Card>
+      {/* 뷰포트 높이에 맞춰 채우고, 관심종목 카드는 그 안에서 넘치는 만큼만 내부 스크롤되게 한다
+          (전체 창이 늘어나 문서 스크롤이 생기는 대신 카드 안에서만 스크롤). 창을 늘리면 Row의
+          height:100%가 AppLayout Content의 남은 높이를 그대로 따라가 함께 늘어난다. */}
+      <Row gutter={16} style={{ height: '100%' }}>
+        <Col span={8} style={{ height: '100%' }}>
+          <Card
+            title="관심종목"
+            style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+            styles={{
+              body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+            }}
+          >
+            <Tabs
+              className="watchlist-tabs"
+              style={{ flex: 1, minHeight: 0 }}
+              type="editable-card"
+              hideAdd={false}
+              activeKey={displayedTabKey}
+              onChange={handleTabChange}
+              onEdit={handleTabEdit}
+              addIcon={<PlusOutlined />}
+              items={[
+                {
+                  key: HOLDINGS_TAB_KEY,
+                  label: '내 보유종목',
+                  closable: false,
+                  children: (
+                    // 검색창이 없는 탭이라 테이블이 이 영역 전체를 쓴다 — measured 높이에서
+                    // 테이블 헤더 높이만큼 뺀 값을 scroll.y로 줘서 헤더는 고정, 행만 스크롤되게 한다.
+                    <div ref={holdingsTableWrapRef} style={{ height: '100%' }}>
+                      <Table<HoldingWatchRow>
+                        rowKey="symbol"
+                        size="small"
+                        loading={holdingsLoading}
+                        scroll={{ y: Math.max(holdingsTableWrapHeight - TABLE_HEADER_HEIGHT_SM, 0) }}
+                        dataSource={(holdingsSummary?.items ?? []).map((item) => ({
+                          symbol: item.symbol,
+                          name: item.name,
+                          market: holdingMarkets[item.symbol],
+                        }))}
+                        pagination={false}
+                        locale={{
+                          emptyText: accounts.length
+                            ? '보유 종목이 없습니다.'
+                            : '계좌 정보를 불러오는 중이거나 연결된 계좌가 없습니다.',
+                        }}
+                        columns={[
+                          {
+                            title: '종목',
+                            key: 'symbol',
+                            render: (_value, record) => (
+                              <a
+                                onClick={() => {
+                                  if (!record.market) {
+                                    message.error(
+                                      '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
+                                    );
+                                    return;
+                                  }
+                                  loadSymbol({
+                                    symbol: record.symbol,
+                                    name: record.name,
+                                    market: record.market,
+                                  });
+                                }}
+                              >
+                                <StockCell name={record.name} symbol={record.symbol} market={record.market} />
+                              </a>
+                            ),
+                          },
+                          {
+                            title: '현재가',
+                            key: 'price',
+                            align: 'right',
+                            render: (_value, record) => {
+                              const quote = watchlistPrices[record.symbol];
+                              return quote ? renderPriceBlock(quote) : '-';
+                            },
+                          },
+                        ]}
+                      />
+                    </div>
+                  ),
+                },
+                ...groups.map((group) => ({
+                  key: String(group.id),
+                  label: (
+                    <span>
+                      {group.name}
+                      <EditOutlined
+                        style={{ marginLeft: 8 }}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setRenameTarget(group);
+                          setRenameValue(group.name);
+                        }}
+                      />
+                    </span>
+                  ),
+                  children: (
+                    <WatchlistGroupPane
+                      group={group}
+                      isActive={displayedTabKey === String(group.id)}
+                      query={query}
+                      setQuery={setQuery}
+                      options={options}
+                      rows={watchlist.filter((row) => row.group_id === group.id)}
+                      watchlistPrices={watchlistPrices}
+                      renderPriceBlock={renderPriceBlock}
+                      watchlistBusy={watchlistBusy}
+                      dragSymbolRef={dragSymbolRef}
+                      loadSymbol={loadSymbol}
+                      handleSelectFromSearch={handleSelectFromSearch}
+                      handleRemove={handleRemove}
+                      reorderGroup={reorderGroup}
+                    />
+                  ),
+                })),
+              ]}
+            />
+          </Card>
+        </Col>
+
+        <Col span={16}>
+          {!selected && (
+            <Card style={{ marginBottom: 16 }}>
+              <Empty description="종목을 검색해 선택하세요." />
+            </Card>
+          )}
+
+          {/* 차트 컨테이너는 selected 여부와 무관하게 항상 마운트되어 있어야 한다.
+              createChart는 마운트 시 한 번만 실행되므로, 이 div가 조건부로 사라졌다 나타나면
+              최초 마운트 시점에 container가 null이라 차트가 영영 생성되지 않는다. */}
+          <Card
+            title={
+              selected ? (
+                <StockCell name={selected.name} symbol={selected.symbol} market={selected.market} />
+              ) : undefined
+            }
+            extra={selected && price ? renderPriceBlock(price, true) : undefined}
+            style={{ display: selected ? 'block' : 'none' }}
+          >
+            <div style={{ position: 'relative' }}>
+              <Spin spinning={loadingChart}>
+                <div ref={chartContainerRef} style={{ width: '100%' }} />
+              </Spin>
+              {loadingMore && (
+                <Text
+                  type="secondary"
+                  style={{ position: 'absolute', top: 4, left: 8, pointerEvents: 'none' }}
+                >
+                  이전 데이터 불러오는 중...
+                </Text>
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
 
       <Modal
         title="새 탭 추가"
@@ -762,32 +768,144 @@ export default function MarketPage() {
           autoFocus
         />
       </Modal>
-
-      {!selected && (
-        <Card style={{ marginBottom: 16 }}>
-          <Empty description="종목을 검색해 선택하세요." />
-        </Card>
-      )}
-
-      {/* 차트 컨테이너는 selected 여부와 무관하게 항상 마운트되어 있어야 한다.
-          createChart는 마운트 시 한 번만 실행되므로, 이 div가 조건부로 사라졌다 나타나면
-          최초 마운트 시점에 container가 null이라 차트가 영영 생성되지 않는다. */}
-      <Card
-        title={selected ? <StockCell name={selected.name} symbol={selected.symbol} /> : undefined}
-        extra={selected && price ? renderPriceBlock(price, true) : undefined}
-        style={{ display: selected ? 'block' : 'none' }}
-      >
-        <div style={{ position: 'relative' }}>
-          <Spin spinning={loadingChart}>
-            <div ref={chartContainerRef} style={{ width: '100%' }} />
-          </Spin>
-          {loadingMore && (
-            <Text type="secondary" style={{ position: 'absolute', top: 4, left: 8, pointerEvents: 'none' }}>
-              이전 데이터 불러오는 중...
-            </Text>
-          )}
-        </div>
-      </Card>
     </AppLayout>
+  );
+}
+
+interface WatchlistGroupPaneProps {
+  group: WatchlistGroupRow;
+  isActive: boolean;
+  query: string;
+  setQuery: (value: string) => void;
+  options: StockRow[];
+  rows: WatchlistRow[];
+  watchlistPrices: Record<string, PriceQuote>;
+  renderPriceBlock: (quote: PriceQuote, alignRight?: boolean) => ReactNode;
+  watchlistBusy: boolean;
+  dragSymbolRef: MutableRefObject<string | null>;
+  loadSymbol: (stock: SelectedStock) => void;
+  handleSelectFromSearch: (stock: StockRow, groupId: number) => void;
+  handleRemove: (groupId: number, symbol: string) => void;
+  reorderGroup: (groupId: number, draggedSymbol: string, targetSymbol: string) => void;
+}
+
+// 관심종목 그룹 탭 하나의 내용(검색창 + 종목 테이블). Tabs의 items는 MarketPage 렌더링 중
+// groups.map()으로 만들어지므로, 그 콜백 안에서 useMeasuredHeight 같은 훅을 직접 호출할 수
+// 없다(훅 호출 규칙 위반) — 그래서 별도 컴포넌트로 분리해 각 탭 인스턴스가 자기 몫의 훅을 가진다.
+function WatchlistGroupPane({
+  group,
+  isActive,
+  query,
+  setQuery,
+  options,
+  rows,
+  watchlistPrices,
+  renderPriceBlock,
+  watchlistBusy,
+  dragSymbolRef,
+  loadSymbol,
+  handleSelectFromSearch,
+  handleRemove,
+  reorderGroup,
+}: WatchlistGroupPaneProps) {
+  const [tableWrapRef, tableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 'none' }}>
+        <AutoComplete
+          style={{ width: 320, marginBottom: 12 }}
+          placeholder="종목명 또는 코드 검색"
+          value={isActive ? query : ''}
+          onChange={setQuery}
+          options={options.map((stock) => ({
+            value: stock.symbol,
+            label: `${stock.name} (${stock.symbol})`,
+          }))}
+          onSelect={(value: string) => {
+            const stock = options.find((item) => item.symbol === value);
+            if (stock) handleSelectFromSearch(stock, group.id);
+          }}
+        />
+        {isActive && query.length > 0 && options.length === 0 && (
+          <Text type="secondary" style={{ marginLeft: 12 }}>
+            검색 결과가 없습니다. 설정 화면에서 종목 캐시 동기화 상태를 확인하세요.
+          </Text>
+        )}
+      </div>
+      {/* 검색창은 위에서 고정 높이로 빠지고, 테이블만 남은 공간을 측정해 scroll.y로 넘긴다
+          (헤더 높이만큼 빼서 테이블 헤더는 고정, 행만 스크롤되게 한다). */}
+      <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0 }}>
+        <Table<WatchlistRow>
+          rowKey="id"
+          size="small"
+          scroll={{ y: Math.max(tableWrapHeight - TABLE_HEADER_HEIGHT_SM, 0) }}
+          dataSource={rows}
+          pagination={false}
+          locale={{ emptyText: '종목을 검색해서 선택하면 이 탭에 저장됩니다.' }}
+          onRow={(record) => ({
+            draggable: true,
+            onDragStart: () => {
+              dragSymbolRef.current = record.symbol;
+            },
+            onDragOver: (event) => event.preventDefault(),
+            onDrop: () => {
+              if (dragSymbolRef.current) reorderGroup(group.id, dragSymbolRef.current, record.symbol);
+              dragSymbolRef.current = null;
+            },
+            onDragEnd: () => {
+              dragSymbolRef.current = null;
+            },
+          })}
+          columns={[
+            {
+              title: '',
+              key: 'drag',
+              width: 32,
+              render: () => <HolderOutlined style={{ cursor: 'grab', color: 'rgba(0,0,0,0.35)' }} />,
+            },
+            {
+              title: '종목',
+              key: 'symbol',
+              render: (_value, record) => (
+                <a onClick={() => loadSymbol(record)}>
+                  <StockCell name={record.name} symbol={record.symbol} market={record.market} />
+                </a>
+              ),
+            },
+            {
+              title: '현재가',
+              key: 'price',
+              align: 'right',
+              render: (_value, record) => {
+                const quote = watchlistPrices[record.symbol];
+                return quote ? renderPriceBlock(quote) : '-';
+              },
+            },
+            {
+              title: '',
+              key: 'actions',
+              width: 64,
+              render: (_value, record) => (
+                <Popconfirm
+                  title={`"${record.name}" 관심종목을 삭제할까요?`}
+                  onConfirm={() => handleRemove(group.id, record.symbol)}
+                  okText="삭제"
+                  cancelText="취소"
+                >
+                  <Button
+                    type="text"
+                    danger
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    disabled={watchlistBusy}
+                  />
+                </Popconfirm>
+              ),
+            },
+          ]}
+        />
+      </div>
+    </div>
   );
 }

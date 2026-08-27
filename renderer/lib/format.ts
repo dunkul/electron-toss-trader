@@ -1,4 +1,4 @@
-import { profitColors } from './theme';
+import { profitColors, profitFlashColors } from './theme';
 
 export function formatAmount(value: string | number): string {
   return Math.round(Number(value)).toLocaleString();
@@ -9,7 +9,15 @@ export function formatRate(rate: string | number): string {
 }
 
 export function profitColor(value: number): string {
-  return value >= 0 ? profitColors.up : profitColors.down;
+  if (value > 0) return profitColors.up;
+  if (value < 0) return profitColors.down;
+  return profitColors.neutral;
+}
+
+export function profitFlashColor(value: number): string {
+  if (value > 0) return profitFlashColors.up;
+  if (value < 0) return profitFlashColors.down;
+  return profitFlashColors.neutral;
 }
 
 export function currencySymbol(currency: string): string {

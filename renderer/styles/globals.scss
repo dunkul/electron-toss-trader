@@ -23,3 +23,82 @@ body.app-ready {
 * {
   box-sizing: border-box;
 }
+
+// 관심종목 현재가 반짝임 이펙트(PriceBlock.tsx) — --price-flash-color에서 투명으로 페이드아웃된다.
+@keyframes price-flash {
+  from {
+    background-color: var(--price-flash-color, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.price-flash {
+  display: inline-block;
+  padding: 1px 4px;
+  margin: -1px -4px;
+  border-radius: 4px;
+  animation: price-flash 1.2s ease-out forwards;
+}
+
+// market.tsx 관심종목 카드 — 탭 목록(.ant-tabs-nav)은 고정. 탭 내용 쪽은 이 자체를 스크롤시키지
+// 않고(과거에는 overflow-y:auto를 여기 줬는데, 그러면 세로 스크롤바가 내부의 고정 검색창/테이블
+// 헤더 옆으로도 그대로 지나가 버린다) 대신 순수 flex 컨테이너로만 두어, 실제 스크롤은 각 탭
+// 내부의 WatchlistGroupPane/holdings 테이블 wrapper(스크롤바가 "행 영역"에만 걸리는 곳)가
+// antd Table의 scroll.y(고정 헤더 + 행만 스크롤)로 담당한다.
+.watchlist-tabs .ant-tabs-body-holder {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.watchlist-tabs .ant-tabs-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.watchlist-tabs .ant-tabs-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+// 전역 스크롤바 디자인 — 항상 표시하되, 얇고 옅은 색으로 눈에 거슬리지 않게 둔다
+// (Electron=Chromium 전제라 webkit 스크롤바 의사요소만 다룬다).
+* {
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import { Layout, Menu } from 'antd';
 
-const { Sider, Header, Content } = Layout;
+const { Sider, Content } = Layout;
 
 const NAV_ITEMS = [
   { key: '/home', label: '대시보드', icon: <DashboardOutlined /> },
@@ -22,12 +22,13 @@ const NAV_ITEMS = [
   { key: '/settings', label: '설정', icon: <SettingOutlined /> },
 ];
 
-/** 모든 페이지의 공통 레이아웃(사이드바+헤더). `<AppLayout title="...">{내용}</AppLayout>` 형태로 감싸 쓴다. */
-export default function AppLayout({ children, title }: { children: ReactNode; title: string }) {
+export default function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    // height(고정)로 줘야 아래 Content가 뷰포트에 맞게 눌려서 overflow:auto가 실제로 작동한다
+    // (minHeight였다면 내용이 넘칠 때 이 Layout 자체가 늘어나 버려 문서 전체가 스크롤된다).
+    <Layout style={{ height: '100vh' }}>
       <Sider theme="light" width={220}>
         <div
           style={{
@@ -52,17 +53,6 @@ export default function AppLayout({ children, title }: { children: ReactNode; ti
         />
       </Sider>
       <Layout>
-        <Header
-          style={{
-            background: '#fff',
-            padding: '0 24px',
-            display: 'flex',
-            alignItems: 'center',
-            borderBottom: '1px solid #f0f0f0',
-          }}
-        >
-          <h1 style={{ fontSize: 16, margin: 0, fontWeight: 600 }}>{title}</h1>
-        </Header>
         <Content style={{ padding: 24, overflow: 'auto' }}>{children}</Content>
       </Layout>
     </Layout>

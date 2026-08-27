@@ -4,8 +4,8 @@ node_modules
 # next.js
 .next
 next-env.d.ts
-AGENTS.md
-CLAUDE.md
+renderer/AGENTS.md
+renderer/CLAUDE.md
 
 # build
 /app

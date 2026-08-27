@@ -1,0 +1,124 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A Nextron (Electron + Next.js) desktop app that watches Toss Securities (토스증권) Open API market
+data and fires local alerts (desktop notification/sound/in-app) when a user-defined strategy condition
+is met. Phase 1 (current, in progress) is **read-only / alert-only — it never places orders**. Order
+placement, conditional orders, and an automated trading engine are an explicitly deferred phase 2; see
+`docs/PLAN.md` (Korean) for the full design rationale, DB schema origin, and phase 2 plans. Treat
+`docs/PLAN.md` as historical design intent, not a changelog — cross-check anything specific against the
+actual code (e.g. it specifies `better-sqlite3` + Drizzle, but the app actually uses Node's built-in
+`node:sqlite` with hand-written migrations).
+
+## Commands
+
+```
+npm run dev           # nextron dev — runs Next.js renderer + Electron main with hot reload
+npm run build         # nextron build — production Electron build via electron-builder
+npm run lint          # eslint .
+npm run lint:fix
+npm run format        # prettier --write .
+npm run format:check
+```
+
+There is no test suite/framework configured in this repo.
+
+Dev mode serves the renderer on a local port (nextron picks one, commonly 8888) and Electron loads
+`http://localhost:<port>/home`. If dev startup fails because the port is stuck, `scripts/kill-port-8888.ps1`
+(or the `.bat` wrapper) frees it.
+
+Requires `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` in `.env` (see `.env.example`) to start the strategy
+engine and stock-master sync — without them `main.ts` logs a warning and skips both, but the UI still
+loads.
+
+## Architecture
+
+Standard Electron split: **`main/`** (TypeScript, Node context, compiled to `app/main.js`) talks to the
+Toss API and SQLite; **`renderer/`** (Next.js pages, compiled to static export in `app/`) is pure UI.
+They communicate only via IPC through `main/preload.ts` (`contextIsolation: true`, `nodeIntegration:
+false`) — the renderer never imports main-process code at runtime, only types.
+
+### IPC contract — the duplication you must keep in sync by hand
+
+- `main/ipc/channels.ts` (`IPC_CHANNELS`) and `renderer/lib/ipc.ts` (`CHANNELS`) each define the **same
+  channel-name strings independently**. There's no shared module because renderer code can't import
+  main code (different build targets/processes) — only `import type` re-exports of interfaces/rows
+  work across the boundary. When adding/renaming a channel, edit both files' string tables.
+- `main/ipc/register.ts` wires each channel to a handler (`ipcMain.handle`), typically delegating
+  straight to a `main/db/repositories/*.ts` function or a `main/toss-api/endpoints/*.ts` call.
+- `renderer/lib/ipc.ts` exposes a typed `api.*` object that pages call instead of touching
+  `window.ipc` directly. Push events (main → renderer, e.g. `strategy:signal`) go through
+  `webContents.send` in `main/notify/notifier.ts` and are subscribed to via `onStrategySignal()`.
+
+### Toss API client (`main/toss-api/`)
+
+- `token-manager.ts` — OAuth2 client-credentials token fetch/cache in SQLite (`oauth_tokens` table),
+  refreshed on 401 with a safety margin before expiry. There is no refresh-token flow; expiry always
+  means re-requesting a fresh token.
+- `rate-limiter.ts` — one token-bucket per `ApiGroup` (`AUTH`, `ACCOUNT`, `ASSET`, `STOCK`,
+  `STOCK_ALL`, `MARKET_DATA`, `MARKET_DATA_CHART`), capacities matching Toss's per-group TPS limits.
+  `ACCOUNT` is capped at 1 TPS — anything touching account data must be cached, not polled tightly.
+  Order-related groups (`ORDER`, `ORDER_INFO`, `CONDITIONAL_ORDER`) are intentionally not registered
+  since phase 1 never calls those endpoints.
+- `http-client.ts` (`tossRequest`) — the single entry point for all calls: acquires the group's rate
+  limit, attaches the bearer token, retries once on 401 via forced token refresh, and retries on 429
+  with exponential backoff + jitter (honoring `Retry-After`). Non-2xx responses are logged to
+  `system_logs` and thrown as `TossApiError`. Always route new endpoint calls through this function
+  rather than calling `fetch` directly.
+- `endpoints/*.ts` — thin wrappers per resource (`account.ts`, `market.ts`, `stocks.ts`) built on
+  `tossRequest`; `paths.ts` centralizes URL path templates.
+- `stock-cache.ts` — syncs the full tradable-stock master list (all KR/US markets) into the `stocks`
+  table once/day (`STOCK_ALL` is 1 TPS, so 7 markets naturally paces to ~7s); used for search/autocomplete
+  so the UI never round-trips to the API for a symbol lookup.
+
+### Strategy engine (`main/engine/`)
+
+`StrategyEngine` (`scheduler.ts`) runs a single `setInterval` tick (30s) that: loads all active
+strategies, batch-fetches current prices for their distinct symbols in one `getPrices` call, then
+evaluates each strategy against a pluggable `StrategyModule` looked up by `strategy_type` in
+`STRATEGY_REGISTRY` (`strategies/index.ts`). A strategy already mid-evaluation is skipped on the next
+tick (`runningStrategyIds` guard) rather than queued. Only `PRICE_TARGET` (`strategies/price-target.ts`)
+is implemented; `MA_CROSS`, `RSI`, `GRID` are declared in the `StrategyType` union and DB schema but have
+no registered module yet — the scheduler logs a warning and skips them if referenced.
+
+Adding a new strategy type: implement `StrategyModule.evaluate(context): { signal, reason? }`
+(`engine/types.ts`), register it in `STRATEGY_REGISTRY`, and it's picked up by the scheduler
+automatically — no scheduler changes needed.
+
+Signals (BUY/SELL) are always recorded to `strategy_signals`, but the notification/cooldown split
+matters: `notified` is `0` when the cooldown (`cooldown_sec`, per-strategy) hasn't elapsed since the
+strategy's last signal — the signal is still logged for history, just not re-alerted.
+
+### Database (`main/db/`)
+
+Uses Node's built-in `node:sqlite` (`DatabaseSync`) directly — no ORM, despite `docs/PLAN.md` proposing
+Drizzle/better-sqlite3. `connection.ts` opens the DB at Electron's `userData` path (or `DB_PATH` env
+override), enables WAL + foreign keys, and runs `migrations.ts`'s array of `{version, sql}` entries
+inside a transaction, tracked in a `schema_migrations` table. **To change schema: append a new
+versioned entry to `MIGRATIONS` in `migrations.ts` and update the corresponding row type in
+`schema.ts` — never edit an already-applied migration's SQL.** Each table has a thin
+`db/repositories/*.ts` module of hand-written prepared-statement functions; IPC handlers and the engine
+call these directly rather than writing SQL inline elsewhere.
+
+In dev, `main/env-setup.ts` redirects `userData` to a `(development)`-suffixed sibling directory so the
+dev DB never collides with a packaged build's DB — this must run before any module that reads
+`app.getPath('userData')` at import time, hence its import at the very top of `main.ts`.
+
+### Secrets and logging
+
+`.env` holds `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` for local dev (per `docs/PLAN.md`, production is
+meant to migrate these into Electron `safeStorage`, but that migration isn't implemented yet — `.env`
+is still the only credential source in the current code). Never log `client_secret` or access tokens;
+`logger.ts` (pino) is the shared logger — use it instead of `console.*` in `main/`.
+
+### Renderer (`renderer/`)
+
+Next.js pages under `renderer/pages/*.tsx` map to the sidebar sections from `docs/PLAN.md` §6
+(`home`, `market`, `strategies`, `history`, `logs`, `settings`), wrapped in `AppLayout.tsx`. UI is Ant
+Design (`antd`) with SCSS modules; charts use `lightweight-charts`. State is Zustand where needed;
+most data comes straight from the `api.*` IPC calls in `lib/ipc.ts` (no client-side cache layer beyond
+component state). `renderer/CLAUDE.md`/`AGENTS.md` are auto-generated by `next dev` (git-ignored,
+unrelated to this file) — don't hand-edit them.

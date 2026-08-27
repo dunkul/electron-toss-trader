@@ -1,6 +1,6 @@
 # 토스증권 매매 시그널 알림 프로그램 개발 기획서
 
-> 작성일: 2026-08-26
+> 작성일: 2026-08-27
 > 프로젝트: toss-trader (Nextron: Electron + Next.js)
 
 ---
@@ -9,14 +9,16 @@
 
 토스증권 Open API(REST + WebSocket)를 이용해 데스크톱에서 동작하는 프로그램을 만든다.
 
-### 1차 개발 범위 (지금 진행)
+### 1차 개발 범위
 
 **실제 주문 실행 없이, 사용자가 수립한 전략 조건이 충족되는 시점을 감지해 알림으로 알려주는 것**이 목표.
 
-1. 계좌/잔고/시세를 실시간으로 조회하는 대시보드 (참고용, 조회 전용)
-2. 사용자가 정의한 전략(조건) 등록/관리 화면
-3. 전략 엔진이 시세를 주기적으로 평가 → 조건 충족 시 **알림(데스크톱 알림/사운드/인앱 배너)** 발생
-4. 발생한 신호(알림) 이력을 SQLite에 남기고 화면에서 조회
+1. 계좌/보유종목/시세를 조회하는 대시보드 (참고용, 조회 전용) — 계좌·전략·알림 현황 요약, 보유 종목
+   테이블, 종목 랭킹 카드
+2. 관심종목(워치리스트) 관리 및 실시간 시세/캔들차트 조회
+3. 사용자가 정의한 전략(조건) 등록/관리 화면
+4. 전략 엔진이 시세를 주기적으로 평가 → 조건 충족 시 **알림(데스크톱 알림 + 인앱 알림)** 발생
+5. 발생한 신호(알림) 이력을 SQLite에 남기고 화면에서 조회 (CSV 내보내기 포함)
 
 → **실제로 API를 통해 매수/매도 주문을 넣는 기능은 이번 범위에 포함하지 않는다.** 사용자가 알림을 보고 직접 토스증권 앱/HTS에서 매매를 실행하는 구조.
 
@@ -26,27 +28,30 @@
 2. 신호 발생 시 자동으로 주문까지 실행하는 자동매매 엔진 (Dry-run → Live 단계적 전환)
 3. 조건주문(OCO/OTO) 연동, 주문/체결 이력 관리
 
-> 이 문서는 1차 범위를 중심으로 상세히 기술하고, 2차 범위는 향후 확장을 고려한 설계(플러그인 구조, 모드 필드 등)로만 여지를 남겨둔다.
+> 이 문서는 1차 범위를 중심으로 상세히 기술하고, 2차 범위는 향후 확장을 고려한 설계(플러그인 구조, 모드 필드 등)로만 여지를 남겨둔다. 차트 화면 자체의 세부 기능 로드맵(이동평균선, 보조지표, 그리기 도구 등)은 `docs/CHART.md`에서 별도로 관리한다.
 
 ---
 
 ## 2. 기술 스택
 
-| 영역               | 선택                                                                           | 비고                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| 앱 프레임워크      | Nextron (Electron + Next.js)                                                   | 이미 설치됨                                                                                          |
-| 언어               | TypeScript                                                                     | main/renderer 공통                                                                                   |
-| DB                 | SQLite (`better-sqlite3`)                                                      | 로컬 파일 DB, main 프로세스에서만 접근                                                               |
-| ORM/쿼리           | Drizzle ORM (또는 Kysely)                                                      | 타입 안전, 마이그레이션 지원                                                                         |
-| 상태관리(renderer) | Zustand                                                                        | 가볍고 IPC 이벤트 반영에 적합                                                                        |
-| UI                 | Ant Design (antd)                                                              | 데이터 테이블/폼이 많은 화면에 적합, 기본 컴포넌트 풍부                                              |
-| 스타일링           | SCSS (CSS Modules, `sass`)                                                     | antd `ConfigProvider` 테마 토큰으로 전역 톤 설정 + 커스텀 레이아웃/컴포넌트는 `*.module.scss`로 작성 |
-| 코드 품질          | ESLint (`typescript-eslint` + `eslint-config-next` + `react-hooks`) + Prettier | 포맷팅은 Prettier, 버그성 규칙(Hooks 의존성, 미사용 변수 등)은 ESLint로 역할 분리                    |
-| 차트               | lightweight-charts (TradingView)                                               | 캔들차트 렌더링에 특화                                                                               |
-| 알림               | Electron `Notification` (OS 네이티브) + 사운드(HTML5 Audio) + 트레이 아이콘    | 1차는 로컬 알림만, 2차에서 외부 채널 확장                                                            |
-| 스케줄링/전략 루프 | main 프로세스 내 setInterval + 이벤트 기반                                     | 별도 워커 스레드 분리 고려                                                                           |
-| 환경설정           | `.env` (dotenv) + Electron `safeStorage`                                       | 시크릿은 OS 자격증명함으로 암호화 저장                                                               |
-| 로깅               | pino (파일 로테이션)                                                           | 콘솔+파일 동시 출력                                                                                  |
+| 영역                | 선택                                                            | 비고                                                                                                          |
+| ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 앱 프레임워크       | Nextron (Electron + Next.js)                                      |                                                                                                                     |
+| 언어                | TypeScript                                                         | main/renderer 공통                                                                                                |
+| DB                  | SQLite, Node 내장 `node:sqlite`(`DatabaseSync`)                   | 별도 네이티브 바인딩(better-sqlite3 등) 없이 Node 표준 모듈만 사용 — 배포 시 네이티브 모듈 재빌드 이슈를 피함    |
+| 쿼리 빌더           | Kysely                                                             | `node:sqlite` 위에 얹는 타입 안전 쿼리 빌더. `main/db/schema.ts`의 `Database` 인터페이스가 유일한 스키마 소스   |
+| 마이그레이션        | 자체 러너 (`main/db/migrations.ts` + `schema_migrations` 버전 테이블) | 버전별 `{version, name, sql}` 배열을 트랜잭션으로 순서대로 적용. 이미 적용된 버전의 SQL은 수정하지 않고 새 버전을 추가 |
+| 상태관리(renderer)  | 컴포넌트 로컬 state                                                | 화면별 상태는 각 페이지 컴포넌트가 관리하고, main의 데이터는 `renderer/lib/ipc.ts`의 `api.*` 호출로 그때그때 가져온다 — 화면 수가 많지 않아 전역 스토어 없이도 충분 |
+| UI                  | Ant Design (antd)                                                  | 데이터 테이블/폼이 많은 화면에 적합, 기본 컴포넌트 풍부                                                          |
+| 스타일링            | SCSS (`renderer/styles/globals.scss`) + antd `ConfigProvider` 테마 토큰 | 브랜드 톤(포인트 컬러 등)은 테마 토큰으로, 스크롤바 커스터마이징 등 앱 전역 룩은 전역 스타일시트 한 곳에서 관리 |
+| 코드 품질           | ESLint (`typescript-eslint` + `eslint-config-next` + `react-hooks`) + Prettier | 포맷팅은 Prettier, 버그성 규칙(Hooks 의존성, 미사용 변수 등)은 ESLint로 역할 분리                                |
+| 차트                | lightweight-charts (TradingView)                                   | 캔들차트 렌더링에 특화. 세부 기능 확장 계획은 `docs/CHART.md`                                                    |
+| 알림                | Electron `Notification`(OS 네이티브) + 인앱 알림(IPC push → antd 토스트) | 데스크톱 알림과 화면 내 토스트를 함께 띄운다. 신호별 알림 채널 on/off(`notify_desktop`/`notify_sound`)는 전략마다 설정 가능하도록 스키마/화면에 필드를 마련해둔다 |
+| 실시간 시세         | WebSocket(`ws`) 클라이언트, main 프로세스에서 연결 관리            | 수신한 체결가는 IPC(`market:tick`)로 renderer에 그대로 push                                                      |
+| 스케줄링/전략 루프  | main 프로세스 내 `setInterval`(30초 주기)                          |                                                                                                                     |
+| 환경설정            | `.env` (dotenv)                                                    | 로컬 개발 기준의 1차 크리덴셜 저장소. 배포판에서는 Electron `safeStorage`(OS 자격증명 저장소)로 암호화 이전하는 것을 다음 단계 과제로 남겨둔다 |
+| 로깅                | pino                                                               | 콘솔 출력(dev에서는 `pino-pretty`로 보기 좋게)                                                                    |
+| 창 상태 저장        | `electron-store`                                                  | 창 크기/위치를 기억했다가 다음 실행 시 복원                                                                       |
 
 ### 프로세스 분리 원칙
 
@@ -57,7 +62,7 @@
 
 ## 3. 토스증권 Open API 연동 정리
 
-> 1차 범위에서는 **조회성 API(시세/종목/계좌/자산)만 사용**한다. 주문 계열 API(`/orders`, `/conditional-orders` 등)는 2차 개발을 위해 문서화만 해두고 지금은 호출하지 않는다.
+> 1차 범위에서는 **조회성 API(시세/종목/계좌/자산/랭킹)만 사용**한다. 주문 계열 API(`/orders`, `/conditional-orders` 등)는 2차 개발을 위해 문서화만 해두고 지금은 호출하지 않는다(레이트리미터에도 등록하지 않음).
 
 ### 3.1 인증 (OAuth 2.0 Client Credentials)
 
@@ -66,38 +71,43 @@
 - 토큰 발급: `POST https://openapi.tossinvest.com/oauth2/token` (`grant_type=client_credentials`, `client_id`, `client_secret`)
 - 이후 모든 요청에 `Authorization: Bearer {access_token}` 헤더 필요
 - 계좌·자산 API는 추가로 `X-Tossinvest-Account: {accountSeq}` 헤더 필요
-- 토큰 만료 시 별도 refresh 메커니즘 없음 → **만료 임박 시 재발급하는 토큰 매니저**를 main에 구현 (401 수신 시 즉시 재발급 + 재시도)
+- 토큰 만료 시 별도 refresh 메커니즘 없음 → 발급받은 토큰을 SQLite(`oauth_tokens`)에 캐시해두고, 만료 임박(안전 마진 적용) 또는 401 수신 시 즉시 재발급하는 토큰 매니저(`main/toss-api/token-manager.ts`)를 둔다
 
 ### 3.2 Rate Limit (클라이언트 × API 그룹 단위 TPS)
 
-| 그룹              | 초당 한도 | 비고                                     |
-| ----------------- | --------- | ---------------------------------------- |
-| AUTH              | 5         |                                          |
-| ACCOUNT           | 1         | 매우 낮음 → 캐싱 필수                    |
-| ASSET             | 5         | 보유종목 조회                            |
-| STOCK             | 5         |                                          |
-| MARKET_DATA       | 15        | 시세 (전략 평가의 핵심, 1차의 주 사용처) |
-| MARKET_DATA_CHART | 20        | 캔들                                     |
-| ORDER             | 10        | 2차 개발용, 1차 미사용                   |
-| ORDER_INFO        | 6         | 2차 개발용, 1차 미사용                   |
-| CONDITIONAL_ORDER | 5         | 2차 개발용, 1차 미사용                   |
+| 그룹              | 초당 한도 | 비고                                          |
+| ----------------- | --------- | --------------------------------------------- |
+| AUTH              | 5         |                                                 |
+| ACCOUNT           | 1         | 매우 낮음 → 캐싱 필수                          |
+| ASSET             | 5         | 보유종목 조회                                  |
+| STOCK             | 5         | 개별 종목 상세 조회                            |
+| STOCK_ALL         | 1         | 전체 종목 마스터 목록(일 1회 배치 동기화 용도)  |
+| MARKET_DATA       | 15        | 시세 (전략 평가의 핵심, 1차의 주 사용처)        |
+| MARKET_DATA_CHART | 20        | 캔들                                            |
+| RANKING           | 5         | 랭킹 조회. 문서에 정확한 TPS가 없어 보수적으로 잡음 |
+| ORDER             | 10        | 2차 개발용, 지금은 리미터에 등록하지 않음        |
+| ORDER_INFO        | 6         | 2차 개발용, 지금은 리미터에 등록하지 않음        |
+| CONDITIONAL_ORDER | 5         | 2차 개발용, 지금은 리미터에 등록하지 않음        |
 
 - 응답 헤더 `X-RateLimit-Limit/Remaining/Reset`, 429 시 `Retry-After` 확인
-- **공통 API 클라이언트**에 그룹별 토큰버킷 리미터 + 429 지수 백오프(1s→2s→4s, jitter) 내장 필요 (1차에서는 주로 MARKET_DATA/MARKET_DATA_CHART/ASSET/ACCOUNT 그룹만 실사용)
+- **공통 API 클라이언트(`main/toss-api/http-client.ts`의 `tossRequest`)**가 모든 호출의 단일 진입점이다 —
+  그룹별 토큰버킷 리미터(`rate-limiter.ts`) 획득, 베어러 토큰 첨부, 401 시 강제 재발급 후 1회 재시도,
+  429 시 지수 백오프(1s→2s→4s + jitter, `Retry-After` 우선)까지 여기서 처리한다. 2xx가 아닌 응답은
+  `system_logs`에 기록하고 `TossApiError`로 던진다.
 
 ### 3.3 주요 엔드포인트
 
 **시세/종목 (1차 핵심 사용처)**
 
-- `GET /api/v1/prices` 현재가, `/candles` 캔들, `/orderbook` 호가, `/trades` 최근 체결, `/price-limits` 상하한가
-- `GET /api/v1/stocks`, `/stocks/all`, `/stocks/{symbol}/investor-trading|credit-trades|program-trades|securities-lending|short-selling|warnings`
-- `GET /api/v1/market-indicators/...`, `/market-calendar/KR|US`, `/exchange-rate`, `/rankings`
+- `GET /api/v1/prices` 현재가, `/candles` 캔들(OHLCV)
+- `GET /api/v1/stocks/all` 시장별 전체 종목 마스터(일 1회 동기화 → 로컬 `stocks` 캐시, 종목 검색/자동완성에 사용)
+- `GET /api/v1/rankings` 거래대금/거래량/상승률/하락률 등 랭킹 (대시보드 랭킹 카드에서 사용)
 - → OAuth 토큰만 있으면 호출 가능 (계좌 불필요)
 
 **계좌/자산 (조회 전용, 대시보드용)**
 
 - `GET /api/v1/accounts` 계좌 목록
-- `GET /api/v1/holdings` 보유 주식
+- `GET /api/v1/holdings` 보유 주식 (종목별 현재가/평가손익 포함 — 대시보드 보유 종목 테이블의 실제 데이터 소스)
 
 **주문 / 조건주문 (2차 개발용 — 지금은 미사용)**
 
@@ -108,19 +118,25 @@
 **WebSocket** (`wss://openapi-ws.tossinvest.com/ws/v1`)
 
 - 계정당 동시 연결 최대 2개, 연결당 구독 최대 100건, 구독 선언 5회/초 제한
-- 구독은 **전체 교체(full-replace)** 방식 — 배열 전체를 매번 다시 보내야 함 → 클라이언트에 "현재 구독 상태" 캐시 두고 diff 계산 후 전체 배열 재전송
+- 구독은 **전체 교체(full-replace)** 방식 — 현재 구독하고 싶은 심볼 전체 배열을 매번 다시 선언한다.
+  클라이언트(`main/toss-api/ws-client.ts`)는 관심종목/보유종목/선택종목이 바뀔 때마다 "원하는 구독
+  목록"을 다시 계산해 재선언하되, 짧은 시간에 연속으로 바뀌어도 선언 자체는 300ms 디바운스해서 한 번만
+  보낸다(5회/초 제한 대비)
 - 60초 간격 PING 필요(180초 무응답 시 서버가 끊음)
-- 1차에서는 `trade`/`orderbook` 시세 구독만 사용 (LOSSY — 수신 밀림 시 중간 프레임 유실 가능, 알림 판단에는 캔들/현재가 폴링을 기준으로 삼고 WS는 대시보드 실시간 표시 용도로 사용 권장)
+- 연결이 끊기면 지수 백오프(최대 30초) + jitter로 재연결하고, 재연결 시 원하는 구독 목록을 처음부터
+  다시 선언한다
+- **`trade`(체결가) 채널만 구독한다** — 호가(orderbook)는 1차 화면에 없어 구독하지 않음. 알림 판단
+  기준은 어디까지나 전략 엔진의 폴링(캔들/현재가)이고, WS는 대시보드/차트의 실시간 표시 용도로만 쓴다
 
 ### 3.4 에러 처리
 
-- 모든 에러는 `{ error: { requestId, code, message, data } }` 형태 → 공통 에러 파서 + 사용자 친화적 메시지 매핑 테이블 작성
+- 모든 에러는 `{ error: { requestId, code, message, data } }` 형태 → `TossApiError`(`main/toss-api/errors.ts`)로 통일해서 던지고, 호출부는 이 하나의 타입만 잡으면 된다
 
 ---
 
 ## 4. 데이터베이스 설계 (SQLite)
 
-파일 위치: Electron `app.getPath('userData')/toss-trader.db` (프로젝트 폴더에 두지 않음 — 실수로 git에 커밋되는 것 방지)
+파일 위치: Electron `app.getPath('userData')/toss-trader.db` (프로젝트 폴더에 두지 않음 — 실수로 git에 커밋되는 것 방지). 개발 모드에서는 `userData` 경로 자체를 `(development)` 접미사가 붙은 별도 디렉터리로 분리해, 개발 중 DB가 패키징된 빌드의 DB와 섞이지 않게 한다.
 
 ```sql
 -- 계좌 (API에서 조회한 계좌 캐시, 조회 전용)
@@ -132,7 +148,7 @@ CREATE TABLE accounts (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- OAuth 토큰 (액세스 토큰 캐시, secret은 별도 safeStorage)
+-- OAuth 토큰 (액세스 토큰 캐시)
 CREATE TABLE oauth_tokens (
   id INTEGER PRIMARY KEY,
   access_token TEXT NOT NULL,
@@ -147,8 +163,8 @@ CREATE TABLE strategies (
   name TEXT NOT NULL,
   symbol TEXT NOT NULL,
   market TEXT NOT NULL,              -- KR/US
-  strategy_type TEXT NOT NULL,       -- e.g. 'MA_CROSS', 'RSI', 'PRICE_TARGET', 'GRID'
-  params_json TEXT NOT NULL,         -- 전략 파라미터 JSON
+  strategy_type TEXT NOT NULL,       -- 'PRICE_TARGET' | 'MA_CROSS' | 'RSI' | 'GRID'
+  params_json TEXT NOT NULL,         -- 전략 파라미터 JSON (예: PRICE_TARGET → { direction, targetPrice })
   is_active INTEGER NOT NULL DEFAULT 1,
   cooldown_sec INTEGER DEFAULT 300,  -- 동일 신호 중복 알림 방지 최소 간격
   notify_desktop INTEGER NOT NULL DEFAULT 1,
@@ -162,9 +178,9 @@ CREATE TABLE strategy_signals (
   id INTEGER PRIMARY KEY,
   strategy_id INTEGER REFERENCES strategies(id),
   signal TEXT NOT NULL,       -- BUY | SELL | HOLD
-  reason TEXT,                -- 조건 충족 근거 (예: "5일선이 20일선 상향 돌파")
+  reason TEXT,                -- 조건 충족 근거 (예: "목표가 70,000원 이상 도달")
   price REAL,
-  notified INTEGER NOT NULL DEFAULT 0,  -- 실제 알림 발송 여부(쿨다운으로 스킵될 수 있음)
+  notified INTEGER NOT NULL DEFAULT 0,  -- 실제 알림 발송 여부(쿨다운으로 스킵되면 0으로 기록만 됨)
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -178,24 +194,59 @@ CREATE TABLE system_logs (
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
--- 앱 설정 (기본 계좌, 알림 설정 등 key-value)
+-- 앱 설정 (마지막 종목 캐시 동기화 시각 등 key-value)
 CREATE TABLE settings (
   key TEXT PRIMARY KEY,
   value TEXT
+);
+
+-- 전체 종목 마스터 캐시 (일 1회 동기화, 종목 검색/자동완성용)
+CREATE TABLE stocks (
+  symbol TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  market TEXT NOT NULL,           -- KOSPI/KOSDAQ/NYSE/NASDAQ/AMEX/KR_ETC/US_ETC
+  security_type TEXT NOT NULL,
+  is_common_share INTEGER NOT NULL DEFAULT 1,
+  isin_code TEXT,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 관심종목 탭(그룹) — "내 보유종목" 탭은 여기 저장하지 않는 고정 탭으로, 화면에서 보유종목 API로 구성한다
+CREATE TABLE watchlist_groups (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 관심종목 (그룹별로 종목을 담고, 그룹 안에서 드래그로 순서 변경 가능)
+CREATE TABLE watchlist (
+  id INTEGER PRIMARY KEY,
+  group_id INTEGER NOT NULL REFERENCES watchlist_groups(id) ON DELETE CASCADE,
+  symbol TEXT NOT NULL,
+  name TEXT NOT NULL,
+  market TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (group_id, symbol)
 );
 
 -- [2차 개발 예약] 주문/체결 테이블 — 지금은 생성하지 않으며,
 -- 자동/수동 매매 기능 착수 시 orders/executions 테이블을 추가한다.
 ```
 
-마이그레이션은 Drizzle Kit(or 자체 `migrations/*.sql` + 버전 테이블)으로 관리.
+마이그레이션은 자체 러너로 관리한다: `main/db/migrations.ts`에 버전별 `{version, name, sql}`을
+순서대로 나열해두면, 앱 시작 시 `schema_migrations` 테이블을 확인해 아직 적용 안 된 버전만
+트랜잭션으로 순서대로 실행한다. **스키마를 바꿀 때는 이미 적용된 버전의 SQL을 고치지 않고 새
+버전을 추가한다.** `main/db/schema.ts`의 Kysely `Database` 인터페이스가 타입상 유일한 스키마
+소스이며, 각 테이블의 Row 타입(`StrategyRow`, `WatchlistRow` 등)은 전부 여기서 파생된다.
 
 ---
 
 ## 5. `.env` 설계
 
 ```dotenv
-# .env (git에 반드시 커밋 금지 — .gitignore에 추가 필요)
+# .env (git에 반드시 커밋 금지 — .gitignore에 등록되어 있음)
 
 # Toss Securities Open API
 TOSS_CLIENT_ID=
@@ -210,15 +261,19 @@ LOG_LEVEL=info
 DB_PATH=
 ```
 
-- `client_secret`은 `.env`에는 최초 세팅용으로만 두고, 실제로는 앱 최초 실행 시 **Electron `safeStorage`(OS 자격증명 저장소)로 암호화 이전**하여 이후 `.env`를 지워도 동작하도록 설계 (탈취 리스크 최소화)
-- `.env`, `*.db`를 `.gitignore`에 반드시 추가 (현재 `.gitignore`에 없음 — 작업 시 추가 필요)
-- `.env.example`을 별도로 커밋해 필요한 키 목록만 공유
+- 현재는 `.env`가 `client_id`/`client_secret`의 유일한 저장소다. 값을 바꾼 뒤에는 앱을 재시작해야
+  반영된다(설정 화면에서 직접 등록/수정하는 기능은 아직 없음).
+- 배포판에서는 `client_secret`을 Electron `safeStorage`(OS 자격증명 저장소)로 암호화 이전해
+  `.env` 없이도 동작하도록 만드는 것을 다음 단계 과제로 남겨둔다(탈취 리스크 최소화 목적).
+- `.env`, `*.db`는 `.gitignore`에 이미 등록되어 있다. `.env.example`을 별도로 커밋해 필요한 키
+  목록만 공유한다.
 
 ---
 
 ## 6. 화면 구성 (Renderer)
 
-Nextron의 `renderer/pages` 기준, 사이드바 + 콘텐츠 레이아웃.
+Nextron의 `renderer/pages` 기준, 사이드바(LNB) + 콘텐츠 레이아웃. 각 화면은 사이드바에 이미
+현재 위치가 표시되므로, 콘텐츠 영역 상단에 별도 헤더 바(제목 표시줄)는 두지 않는다.
 
 ```
 [사이드바]
@@ -230,43 +285,61 @@ Nextron의 `renderer/pages` 기준, 사이드바 + 콘텐츠 레이아웃.
  └─ 설정
 ```
 
-### 6.1 대시보드 (`/`)
+### 6.1 대시보드 (`/home`)
 
-- 선택 계좌 요약: 예수금, 평가금액, 손익률 (조회 전용)
-- 보유 종목 테이블 (실시간 현재가 반영, WebSocket 구독)
-- 활성 전략 카드 목록 (상태: 감시중/중지, 최근 신호, 마지막 평가 시각)
-- 최근 알림/에러 피드
+- 상단 요약 카드 4개: 등록 계좌 수, 감시 중인 전략 수(활성/전체), 최근 알림 건수, 보유종목
+  평가손익(원화 환산 보유분 + 등락률)
+- 보유 종목 카드: 국내/해외 세그먼트 전환, 종목별 수량·현재가(당일 등락 포함)·평가손익을 색상과
+  함께 표시. `GET /api/v1/holdings` 응답을 그대로 사용하며, 새로고침 버튼으로 다시 조회한다(항상
+  WebSocket으로 갱신되는 건 아니고, 계좌 API 응답 시점 기준)
+- 종목 랭킹 카드: 거래대금/거래량/상승률/하락률 등 여러 랭킹 타입과 기간을 선택해서 볼 수 있고,
+  보유 종목 새로고침과 같이 눌리는 새로고침 버튼을 공유한다
+- 전략 신호가 발생하면(`strategy:signal` IPC push) 화면 어디에 있든 인앱 토스트 알림을 띄우고,
+  대시보드 데이터를 다시 불러온다
 
 ### 6.2 시세/차트 (`/market`)
 
-- 종목 검색 (심볼/이름)
-- lightweight-charts 캔들 차트 + 이동평균/RSI 등 보조지표 오버레이(클라이언트 계산)
-- 호가창(orderbook), 최근 체결(trades) 실시간 스트림
-- 차트 위에서 바로 "이 조건으로 전략 만들기" 버튼 (예: 특정 가격 라인 클릭 → 목표가 알림 생성)
+- 관심종목 카드(좌측, 전체 폭의 1/3)와 차트 카드(우측, 2/3)를 나란히 배치, 카드 높이는 뷰포트에
+  맞추고 넘치는 목록만 카드 내부에서 스크롤된다
+- 관심종목은 탭(그룹) 단위로 관리한다 — "내 보유종목"은 DB에 저장되지 않는 고정 탭이고, 그 외
+  탭은 사용자가 이름을 지어 자유롭게 추가/이름변경/삭제할 수 있다. 각 탭 안에서는 종목을
+  드래그해서 순서를 바꿀 수 있다
+- 종목 검색(심볼/이름 자동완성) → 선택하면 해당 탭에 저장되고 차트가 열림
+- 종목 행의 현재가는 실시간 틱마다 상승/하락/보합에 따라 배경이 잠깐 반짝였다가 사라지는
+  이펙트로 변화를 표시하고, 거래소는 종목 코드 옆에 `거래소(코드)` 형태로 함께 표기한다
+- lightweight-charts 캔들 차트: 일봉 기준, 최대 200개씩 커서 페이지네이션으로 과거 데이터를
+  이어서 불러오고(왼쪽 끝까지 스크롤하면 자동 로드), 거래량 히스토그램을 캔들 아래 별도
+  서브패널로 함께 그린다. 크로스헤어로 가리킨 시점의 날짜는 한국식(연-월-일) 순서로 표시한다.
+  실시간 틱은 당일 봉의 고가/저가/종가를 갱신한다. 이동평균선/보조지표/그리기 도구 등 추가
+  기능은 `docs/CHART.md`의 로드맵을 따라 순서대로 확장한다
 
 ### 6.3 전략(알림 조건) (`/strategies`)
 
-- 전략 목록 (이름, 종목, 유형, 상태 토글[감시중/중지], 최근 신호 시각)
-- 전략 생성/편집 폼: 종목, 전략 타입 선택(이동평균 교차, RSI, 목표가, 그리드 등), 파라미터, 재평가 주기, 중복알림 방지 쿨다운, 알림 채널(데스크톱/사운드 on-off)
-- 전략별 상세 페이지: 신호 이력 차트(가격 위에 신호 발생 지점 마킹), 알림 발송 이력
+- 전략 목록 테이블: 이름, 종목, 마켓, 유형, 쿨다운(초), 감시 상태(on/off 스위치), 삭제
+- "새 전략 만들기"는 현재 **목표가 도달 알림(PRICE_TARGET)** 조건 폼을 제공한다 — 종목 검색,
+  마켓, 조건(목표가 이상 상승 / 이하 하락), 목표가, 중복 알림 방지 쿨다운, 알림 채널
+  (데스크톱/사운드) on-off
+- 이동평균 교차(MA_CROSS)/RSI/그리드(GRID) 전략 유형은 DB 스키마와 엔진 인터페이스에 자리가
+  마련되어 있어 새 평가 로직만 등록하면 바로 스케줄러에 편입되지만, 아직 평가 모듈과 생성 폼은
+  목표가 알림 하나만 구현되어 있다 — 다음 전략 유형을 추가할 때는 이 구조를 그대로 재사용한다
 
 ### 6.4 알림 내역 (`/history`)
 
-- `strategy_signals` 기반, 필터(기간/종목/전략/신호타입)가 있는 테이블
-- 신호 발생 시점의 가격/근거(reason) 표시
-- CSV 내보내기
+- `strategy_signals` 기반 테이블, 신호 타입(전체/BUY/SELL) 필터
+- 신호 발생 시각, 전략명, 신호, 가격, 알림 발송 여부(발송됨/쿨다운으로 스킵), 근거(reason) 표시
+- 현재 필터링된 목록을 CSV로 내보내기
 
 ### 6.5 로그 (`/logs`)
 
-- system_logs 테이블 뷰, 레벨/소스 필터
-- API 에러(rate limit 초과, 인증 실패 등) 하이라이트
+- `system_logs` 테이블 뷰, 레벨(전체/ERROR/WARN/INFO) 필터
+- 시각/레벨/소스/메시지 컬럼
 
 ### 6.6 설정 (`/settings`)
 
-- API Key 등록/검증 (허용 IP 확인 안내 포함)
-- 기본 계좌 선택 (대시보드 표시용)
-- 알림(데스크톱 알림/사운드) on/off, 방해금지 시간대 설정
-- DB 백업/초기화
+- Open API 연결 테스트 (현재 계좌 목록을 조회해보고 성공/실패를 바로 보여줌). `client_id`/
+  `client_secret`은 `.env`에서만 읽으며, 화면에서 직접 등록/암호화 저장하는 기능은 아직 없다
+- 종목 캐시 상태(캐시된 종목 수, 마지막 동기화 시각) 조회 + 수동 재동기화 버튼
+- 테스트 알림 발송 버튼 (데스크톱 알림이 정상 동작하는지 바로 확인)
 
 > 2차 개발 시 "주문(수동매매)" 메뉴와 전략 화면의 "자동실행 모드(Dry-run/Live)" 토글이 추가될 예정.
 
@@ -278,15 +351,16 @@ Nextron의 `renderer/pages` 기준, 사이드바 + 콘텐츠 레이아웃.
 ┌─────────────────────────────────────────────┐
 │              Strategy Alert Engine            │
 │                                               │
-│  Scheduler (전략별 재평가 주기, 예: 10~60초)     │
+│  Scheduler (setInterval, 30초 주기)             │
 │        │                                     │
 │        ▼                                     │
-│  ① 시세/지표 데이터 로드 (캐시 우선, MARKET_DATA │
-│     TPS 한도 고려하여 폴링 or WS 구독 재사용)     │
+│  ① 활성 전략 전체 로드 → 대상 심볼들의 현재가를    │
+│     getPrices 한 번 호출로 배치 조회             │
 │        │                                     │
 │        ▼                                     │
-│  ② 전략 모듈 평가 (Strategy.evaluate())        │
-│     → BUY / SELL / HOLD + reason              │
+│  ② strategy_type으로 STRATEGY_REGISTRY에서     │
+│     찾은 전략 모듈 평가(evaluate) → BUY/SELL/    │
+│     HOLD + reason                             │
 │        │                                     │
 │        ▼                                     │
 │  ③ 쿨다운/중복 체크 (동일 조건 반복 알림 방지)    │
@@ -294,48 +368,67 @@ Nextron의 `renderer/pages` 기준, 사이드바 + 콘텐츠 레이아웃.
 │        ▼                                     │
 │  ④ signal이 BUY/SELL이면:                     │
 │     - strategy_signals에 기록                 │
-│     - Electron Notification 발송 + 사운드 재생  │
-│     - IPC로 renderer에 push (대시보드/토스트)   │
+│     - Electron Notification 발송 + 인앱 토스트  │
+│     - IPC(strategy:signal)로 renderer에 push   │
 └─────────────────────────────────────────────┘
 ```
 
-- 전략은 `evaluate(context): Signal` 인터페이스로 플러그인화 (이동평균교차, RSI, 목표가, 그리드 등 각각 별도 클래스) → 2차 개발에서 동일 인터페이스에 "주문 실행" 단계만 추가하면 되도록 설계
-- 반복 실행 주기는 전략별 설정 가능하나, ACCOUNT(1 TPS) 등 낮은 한도 그룹은 반드시 중앙 레이트리미터를 공유해 여러 전략이 동시에 폭주 호출하지 않도록 함
-- 중복 실행 방지: 동일 전략의 이전 tick이 아직 처리 중이면 skip (mutex/lock)
-- `cooldown_sec` 동안은 동일 전략의 같은 신호를 재알림하지 않음 (단, `strategy_signals`에는 기록해 이력 확인 가능하게 하고 `notified=0`으로 표시)
-- WebSocket 재연결 시 구독 재선언 로직 필요 (전체 교체 방식이므로 재연결마다 현재 구독 목록 재전송)
+- 전략 모듈은 `StrategyModule.evaluate(context): { signal, reason? }` 인터페이스로 플러그인화
+  되어 있다(`main/engine/types.ts`). `strategy_type` 값으로 `STRATEGY_REGISTRY`
+  (`main/engine/strategies/index.ts`)에서 모듈을 찾아 평가하므로, 새 전략 유형은 모듈을 구현해
+  레지스트리에 등록하기만 하면 스케줄러 변경 없이 바로 동작한다. 현재는 `PRICE_TARGET`
+  (`strategies/price-target.ts`) 하나만 구현되어 있고, 참조되지 않은 유형(`MA_CROSS`/`RSI`/
+  `GRID`)은 스케줄러가 경고 로그만 남기고 건너뛴다 — 2차 개발에서 동일 인터페이스에 "주문 실행"
+  단계만 추가하면 되도록 설계해둔 구조다
+- 이미 평가 중인 전략은 다음 tick에서 건너뛴다(`runningStrategyIds` 가드) — 대기열에 쌓지 않고
+  그냥 스킵
+- `cooldown_sec` 동안은 동일 전략의 신호를 재알림하지 않는다(단, `strategy_signals`에는 항상
+  기록해 이력은 남기고 `notified=0`으로 표시)
+- ACCOUNT(1 TPS) 등 낮은 한도 그룹은 중앙 레이트리미터를 공유해 여러 전략이 동시에 폭주 호출하지
+  않도록 한다
+- WebSocket 재연결 시 구독 재선언 로직 필요 (전체 교체 방식이므로 재연결마다 현재 구독 목록
+  재전송)
 
 ---
 
 ## 8. IPC 설계 (main ↔ renderer)
 
-`preload.ts`에 노출할 채널 예시:
+`main/ipc/channels.ts`(`IPC_CHANNELS`)와 `renderer/lib/ipc.ts`(`CHANNELS`)가 같은 채널 이름
+문자열을 각자 독립적으로 선언한다 — renderer는 다른 빌드 타깃이라 main 코드를 런타임에 import할
+수 없어서(`import type` 재수출만 가능), 채널을 추가/변경할 때는 두 파일을 손으로 같이 고쳐야
+한다. `main/ipc/register.ts`가 각 채널을 `ipcMain.handle`로 연결하고, 대부분 `main/db/
+repositories/*.ts` 함수나 `main/toss-api/endpoints/*.ts` 호출로 그대로 위임한다.
 
-| 채널                                   | 방향              | 설명                                |
-| -------------------------------------- | ----------------- | ----------------------------------- |
-| `auth:setCredentials`                  | invoke            | client_id/secret 저장(safeStorage)  |
-| `accounts:list`                        | invoke            | 계좌 목록 조회                      |
-| `market:subscribe`                     | send              | WS 구독 갱신 요청(symbols)          |
-| `market:tick`                          | on(main→renderer) | 실시간 시세 push                    |
-| `strategy:create/update/toggle/delete` | invoke            | 전략 CRUD                           |
-| `strategy:signal`                      | on                | 신호 발생 push (토스트/알림 트리거) |
-| `notifications:test`                   | invoke            | 알림 테스트 발송(설정 화면용)       |
-| `logs:stream`                          | on                | 실시간 로그 push                    |
+| 채널 그룹        | 방향              | 설명                                                          |
+| ----------------- | ----------------- | --------------------------------------------------------------- |
+| `accounts:*`       | invoke            | 계좌 목록, 보유종목 조회                                        |
+| `strategy:*`       | invoke            | 전략 목록/생성/수정/토글/삭제                                   |
+| `signals:list`      | invoke            | 신호(알림) 이력 조회                                             |
+| `logs:list`         | invoke            | 시스템 로그 조회                                                 |
+| `stocks:*`          | invoke            | 종목 검색, 캐시 상태 조회, 수동 재동기화, 심볼로 일괄 조회        |
+| `market:prices`     | invoke            | 현재가 조회                                                       |
+| `market:candles`    | invoke            | 캔들(OHLCV) 조회                                                  |
+| `watchlist*`        | invoke            | 관심종목/관심종목 그룹 CRUD·순서변경                              |
+| `ranking:list`      | invoke            | 랭킹 조회                                                          |
+| `notifications:test` | invoke           | 테스트 알림 발송(설정 화면용)                                     |
+| `market:subscribe`  | send(응답 없음)   | 실시간 구독할 심볼 전체 목록을 매번 새로 선언(full-replace)       |
+| `market:tick`       | on(main→renderer) | 실시간 시세 push                                                  |
+| `strategy:signal`   | on(main→renderer) | 신호 발생 push (토스트/알림 트리거)                               |
 
 ---
 
 ## 9. 개발 마일스톤
 
-### 1차 (알림 프로그램 — 지금 진행)
+### 1차 (알림 프로그램)
 
-| 단계 | 내용                  | 산출물                                                               |
-| ---- | --------------------- | -------------------------------------------------------------------- |
-| 0    | 프로젝트 셋업         | DB(better-sqlite3+drizzle), .env, 로거, antd 설치, IPC 스캐폴딩      |
-| 1    | API 클라이언트 & 인증 | OAuth 토큰 매니저, 레이트리미터, 공통 에러 파서, 시세/계좌 조회 확인 |
-| 2    | 대시보드 & 시세 화면  | 계좌/보유종목 조회, 캔들차트, WebSocket 실시간 반영                  |
-| 3    | 전략 엔진 & 알림      | 전략 CRUD, 평가 루프, 데스크톱 알림 + 사운드 발송, 쿨다운 처리       |
-| 4    | 알림 내역/로그 화면   | strategy_signals/system_logs 화면화, CSV 내보내기                    |
-| 5    | 안정화                | WS 재연결/재구독, 429 백오프 검증, 장시간 구동(상시 실행) 테스트     |
+| 단계 | 내용                  | 산출물                                                                     |
+| ---- | --------------------- | ---------------------------------------------------------------------------- |
+| 0    | 프로젝트 셋업         | DB(`node:sqlite`+Kysely), `.env`, 로거, antd 설치, IPC 스캐폴딩              |
+| 1    | API 클라이언트 & 인증 | OAuth 토큰 매니저, 레이트리미터, 공통 에러 파서, 시세/계좌 조회 확인          |
+| 2    | 대시보드 & 시세 화면  | 계좌/보유종목/랭킹 조회, 관심종목 탭, 캔들+거래량 차트, WebSocket 실시간 반영 |
+| 3    | 전략 엔진 & 알림      | 전략 CRUD(목표가 알림), 평가 루프, 데스크톱+인앱 알림 발송, 쿨다운 처리       |
+| 4    | 알림 내역/로그 화면   | strategy_signals/system_logs 화면화, CSV 내보내기                            |
+| 5    | 안정화                | WS 재연결/재구독, 429 백오프 검증, 장시간 구동(상시 실행) 테스트             |
 
 ### 2차 (수동/자동매매 — 추후)
 
@@ -361,10 +454,8 @@ Nextron의 `renderer/pages` 기준, 사이드바 + 콘텐츠 레이아웃.
 
 ## 11. 다음 액션 아이템
 
-1. ~~`.gitignore`에 `.env`, `*.db` 추가~~ (완료)
-2. ~~git 저장소 초기화(`main` 브랜치), Prettier/ESLint 설정~~ (완료)
-3. `better-sqlite3`, `drizzle-orm`, `dotenv`, `pino`, `antd`, `sass`, `lightweight-charts`, `zustand` 설치
-4. `main/lib/toss-api/` 아래 OAuth 클라이언트 + 레이트리미터 스켈레톤 작성 (조회 API만 우선 구현)
-5. `main/db/schema.ts` + 초기 마이그레이션 작성 (1차 범위 테이블만)
-6. 전략 평가 엔진 + Electron Notification 연동 스켈레톤 작성
-7. 토스 WTS에서 client_id/secret 발급 및 허용 IP 등록 (사용자 액션)
+1. `client_secret`을 Electron `safeStorage`로 암호화 이전하는 흐름 설계 및 구현 (지금은 `.env`만 지원)
+2. 대시보드에 "마지막 전략 평가 성공 시각" 헬스체크 표시 추가 (10장의 알림 신뢰성 리스크 대응)
+3. 목표가 알림(PRICE_TARGET) 외 전략 유형(이동평균 교차/RSI/그리드) 중 하나를 골라 평가 모듈 + 생성 폼 구현 (7장/6.3절 구조 그대로 확장)
+4. 차트 기능 확장은 `docs/CHART.md`의 우선순위(P0/P1/P2)를 따라 순서대로 진행
+5. 장시간 구동 안정성 검증 (WS 재연결, 429 백오프, 스케줄러 예외 처리)이 끝나면 2차 개발(수동 주문) 착수 여부를 결정

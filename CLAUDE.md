@@ -9,9 +9,8 @@ data and fires local alerts (desktop notification/sound/in-app) when a user-defi
 is met. Phase 1 (current, in progress) is **read-only / alert-only — it never places orders**. Order
 placement, conditional orders, and an automated trading engine are an explicitly deferred phase 2; see
 `docs/PLAN.md` (Korean) for the full design rationale, DB schema origin, and phase 2 plans. Treat
-`docs/PLAN.md` as historical design intent, not a changelog — cross-check anything specific against the
-actual code (e.g. it specifies `better-sqlite3` + Drizzle, but the app actually uses Node's built-in
-`node:sqlite` with hand-written migrations).
+`docs/PLAN.md` as a living design doc, not a strict changelog — it's kept in sync with the codebase at a
+point in time, but still cross-check anything load-bearing against the actual code before relying on it.
 
 ## Commands
 
@@ -94,8 +93,8 @@ strategy's last signal — the signal is still logged for history, just not re-a
 
 ### Database (`main/db/`)
 
-Uses Node's built-in `node:sqlite` (`DatabaseSync`) directly — no ORM, despite `docs/PLAN.md` proposing
-Drizzle/better-sqlite3. `connection.ts` opens the DB at Electron's `userData` path (or `DB_PATH` env
+Uses Node's built-in `node:sqlite` (`DatabaseSync`) as the driver, with Kysely as a type-safe query
+builder on top (no full ORM). `connection.ts` opens the DB at Electron's `userData` path (or `DB_PATH` env
 override), enables WAL + foreign keys, and runs `migrations.ts`'s array of `{version, sql}` entries
 inside a transaction, tracked in a `schema_migrations` table. **To change schema: append a new
 versioned entry to `MIGRATIONS` in `migrations.ts` and update the corresponding row type in

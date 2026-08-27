@@ -40,9 +40,15 @@ if (isProd) {
   const mainWindow = createWindow('main', {
     width: 1280,
     height: 800,
+    show: false,
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.js'),
     },
+  });
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
   });
 
   mainWindow.webContents.on('before-input-event', (_event, input) => {

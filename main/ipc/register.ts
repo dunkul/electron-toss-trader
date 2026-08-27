@@ -11,17 +11,22 @@ import {
 } from '../db/repositories/strategies';
 import { listRecentLogs } from '../db/repositories/logs';
 import { listRecentSignals } from '../db/repositories/signals';
-import { countStocks, searchStocks } from '../db/repositories/stocks';
+import { countStocks, getStocksBySymbols, searchStocks } from '../db/repositories/stocks';
 import {
   addToWatchlist,
+  createWatchlistGroup,
+  deleteWatchlistGroup,
   listWatchlist,
+  listWatchlistGroups,
   removeFromWatchlist,
+  renameWatchlistGroup,
   type AddToWatchlistInput,
 } from '../db/repositories/watchlist';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
+import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
 import type { TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
@@ -76,6 +81,10 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     return { count: countStocks(db), lastSyncedAt: getLastStocksSyncedAt(db) };
   });
 
+  ipcMain.handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) =>
+    getStocksBySymbols(db, symbols),
+  );
+
   ipcMain.handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
 
   ipcMain.handle(
@@ -90,9 +99,25 @@ export function registerIpcHandlers(db: DatabaseSync, wsClient?: TossMarketWsCli
     addToWatchlist(db, input),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, (_event, symbol: string) => {
-    removeFromWatchlist(db, symbol);
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, (_event, groupId: number, symbol: string) => {
+    removeFromWatchlist(db, groupId, symbol);
   });
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) =>
+    createWatchlistGroup(db, name),
+  );
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, (_event, id: number, name: string) => {
+    renameWatchlistGroup(db, id, name);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_DELETE, (_event, id: number) => {
+    deleteWatchlistGroup(db, id);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));
 
   ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (_event, symbols: WsSymbolRef[]) => {
     wsClient?.setSymbols(symbols);

@@ -102,4 +102,42 @@ export const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    // 관심종목을 탭(그룹)으로 분류 관리할 수 있도록 재구성. 기존 관심종목 데이터는 전부
+    // 초기화하고, 기본 탭 "기본1"에 삼성전자/SK하이닉스 두 종목을 시드로 채워 넣는다.
+    // ("내 보유종목" 탭은 DB에 저장되지 않는 고정 탭으로, 렌더러에서 홀딩스 API로 구성한다.)
+    version: 4,
+    name: 'watchlist_groups',
+    sql: `
+      DROP TABLE watchlist;
+
+      CREATE TABLE watchlist_groups (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE watchlist (
+        id INTEGER PRIMARY KEY,
+        group_id INTEGER NOT NULL REFERENCES watchlist_groups(id) ON DELETE CASCADE,
+        symbol TEXT NOT NULL,
+        name TEXT NOT NULL,
+        market TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (group_id, symbol)
+      );
+
+      CREATE INDEX idx_watchlist_group_id ON watchlist(group_id);
+
+      INSERT INTO watchlist_groups (name, sort_order) VALUES ('기본1', 0);
+
+      INSERT INTO watchlist (group_id, symbol, name, market, sort_order)
+        SELECT id, '005930', '삼성전자', 'KOSPI', 0 FROM watchlist_groups WHERE name = '기본1';
+
+      INSERT INTO watchlist (group_id, symbol, name, market, sort_order)
+        SELECT id, '000660', 'SK하이닉스', 'KOSPI', 1 FROM watchlist_groups WHERE name = '기본1';
+    `,
+  },
 ];

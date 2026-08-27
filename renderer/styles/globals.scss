@@ -6,6 +6,16 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', Roboto, sans-serif;
 }
 
+// 정적 export된 HTML은 antd(cssinjs) 스타일 태그 없이 먼저 그려지므로,
+// hydration이 끝나 스타일이 주입될 때까지 화면을 숨겨 FOUC를 막는다.
+body {
+  visibility: hidden;
+}
+
+body.app-ready {
+  visibility: visible;
+}
+
 #__next {
   height: 100%;
 }

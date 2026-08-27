@@ -59,6 +59,24 @@ export function searchStocks(db: DatabaseSync, query: string, limit = 20): Stock
     .all(like, like, prefix, limit) as unknown as StockRow[];
 }
 
+export function getStocksBySymbols(db: DatabaseSync, symbols: string[]): StockRow[] {
+  if (symbols.length === 0) return [];
+  const placeholders = symbols.map(() => '?').join(',');
+  return db
+    .prepare(`SELECT * FROM stocks WHERE symbol IN (${placeholders})`)
+    .all(...symbols) as unknown as StockRow[];
+}
+
+/** symbol -> name 매핑. 랭킹 API 응답에는 종목명이 없어 로컬 stocks 캐시로 보강할 때 쓴다. */
+export function getStockNames(db: DatabaseSync, symbols: string[]): Record<string, string> {
+  if (symbols.length === 0) return {};
+  const placeholders = symbols.map(() => '?').join(',');
+  const rows = db
+    .prepare(`SELECT symbol, name FROM stocks WHERE symbol IN (${placeholders})`)
+    .all(...symbols) as { symbol: string; name: string }[];
+  return Object.fromEntries(rows.map((row) => [row.symbol, row.name]));
+}
+
 export function countStocks(db: DatabaseSync): number {
   const row = db.prepare('SELECT COUNT(*) AS count FROM stocks').get() as { count: number };
   return row.count;

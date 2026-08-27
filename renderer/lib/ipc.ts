@@ -8,10 +8,18 @@ import type {
   StrategyType,
   SystemLogRow,
   TossExchange,
+  WatchlistGroupRow,
   WatchlistRow,
 } from '../../main/db/schema';
 import type { AccountSummary, Holding, HoldingsSummary } from '../../main/toss-api/endpoints/account';
 import type { Candle, CandleInterval, CandlesPage, PriceQuote } from '../../main/toss-api/endpoints/market';
+import type {
+  GetRankingsParams,
+  RankingDuration,
+  RankingItem,
+  RankingResult,
+  RankingType,
+} from '../../main/toss-api/endpoints/ranking';
 import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 
@@ -31,11 +39,17 @@ const CHANNELS = {
   STOCKS_SEARCH: 'stocks:search',
   STOCKS_STATUS: 'stocks:status',
   STOCKS_REFRESH: 'stocks:refresh',
+  STOCKS_GET_BY_SYMBOLS: 'stocks:getBySymbols',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  WATCHLIST_GROUPS_LIST: 'watchlist-groups:list',
+  WATCHLIST_GROUP_CREATE: 'watchlist-groups:create',
+  WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',
+  WATCHLIST_GROUP_DELETE: 'watchlist-groups:delete',
+  RANKING_LIST: 'ranking:list',
   MARKET_SUBSCRIBE: 'market:subscribe',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
@@ -54,6 +68,7 @@ export type {
   StrategyType,
   SystemLogRow,
   TossExchange,
+  WatchlistGroupRow,
   WatchlistRow,
 };
 export type { MarketTick, WsSymbolRef };
@@ -69,6 +84,7 @@ export type {
   SignalNotification,
 };
 export type { CreateStrategyInput, UpdateStrategyInput };
+export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
 
 export const api = {
   listAccounts: () => window.ipc.invoke<AccountSummary[]>(CHANNELS.ACCOUNTS_LIST),
@@ -91,6 +107,8 @@ export const api = {
     window.ipc.invoke<StockRow[]>(CHANNELS.STOCKS_SEARCH, query, limit),
   getStocksStatus: () => window.ipc.invoke<StocksStatus>(CHANNELS.STOCKS_STATUS),
   refreshStocks: () => window.ipc.invoke<StocksStatus>(CHANNELS.STOCKS_REFRESH),
+  getStocksBySymbols: (symbols: string[]) =>
+    window.ipc.invoke<StockRow[]>(CHANNELS.STOCKS_GET_BY_SYMBOLS, symbols),
 
   getPrices: (symbols: string[]) => window.ipc.invoke<PriceQuote[]>(CHANNELS.MARKET_PRICES, symbols),
   getCandles: (params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
@@ -99,7 +117,17 @@ export const api = {
   listWatchlist: () => window.ipc.invoke<WatchlistRow[]>(CHANNELS.WATCHLIST_LIST),
   addToWatchlist: (input: AddToWatchlistInput) =>
     window.ipc.invoke<WatchlistRow>(CHANNELS.WATCHLIST_ADD, input),
-  removeFromWatchlist: (symbol: string) => window.ipc.invoke<void>(CHANNELS.WATCHLIST_REMOVE, symbol),
+  removeFromWatchlist: (groupId: number, symbol: string) =>
+    window.ipc.invoke<void>(CHANNELS.WATCHLIST_REMOVE, groupId, symbol),
+
+  listWatchlistGroups: () => window.ipc.invoke<WatchlistGroupRow[]>(CHANNELS.WATCHLIST_GROUPS_LIST),
+  createWatchlistGroup: (name: string) =>
+    window.ipc.invoke<WatchlistGroupRow>(CHANNELS.WATCHLIST_GROUP_CREATE, name),
+  renameWatchlistGroup: (id: number, name: string) =>
+    window.ipc.invoke<void>(CHANNELS.WATCHLIST_GROUP_RENAME, id, name),
+  deleteWatchlistGroup: (id: number) => window.ipc.invoke<void>(CHANNELS.WATCHLIST_GROUP_DELETE, id),
+
+  getRankings: (params: GetRankingsParams) => window.ipc.invoke<RankingResult>(CHANNELS.RANKING_LIST, params),
 
   testNotification: () => window.ipc.invoke<void>(CHANNELS.NOTIFICATIONS_TEST),
 

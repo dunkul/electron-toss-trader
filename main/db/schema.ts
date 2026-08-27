@@ -72,10 +72,19 @@ export interface StockRow {
   updated_at: string;
 }
 
+export interface WatchlistGroupRow {
+  id: number;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
 export interface WatchlistRow {
   id: number;
+  group_id: number;
   symbol: string;
   name: string;
   market: TossExchange;
+  sort_order: number;
   created_at: string;
 }

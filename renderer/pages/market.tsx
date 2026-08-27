@@ -1,7 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import { App, AutoComplete, Button, Card, Empty, Popconfirm, Spin, Table, Typography } from 'antd';
-import { DeleteOutlined } from '@ant-design/icons';
+import {
+  App,
+  AutoComplete,
+  Button,
+  Card,
+  Empty,
+  Input,
+  Modal,
+  Popconfirm,
+  Spin,
+  Table,
+  Tabs,
+  Typography,
+  type TabsProps,
+} from 'antd';
+import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   CandlestickSeries,
   createChart,
@@ -16,7 +30,19 @@ import PriceBlock from '../components/PriceBlock';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
 import { useStockSearch } from '../hooks/useStockSearch';
 import { api, onMarketTick } from '../lib/ipc';
-import type { Candle, PriceQuote, StockRow, TossExchange, WatchlistRow } from '../lib/ipc';
+import type {
+  AccountSummary,
+  Candle,
+  Holding,
+  HoldingsSummary,
+  PriceQuote,
+  StockRow,
+  TossExchange,
+  WatchlistGroupRow,
+  WatchlistRow,
+} from '../lib/ipc';
+
+const HOLDINGS_TAB_KEY = 'holdings';
 
 const CANDLE_PAGE_SIZE = 200; // Toss API의 /candles는 한 번 요청에 최대 200개까지만 허용한다.
 
@@ -41,6 +67,31 @@ export default function MarketPage() {
   const [watchlistBusy, setWatchlistBusy] = useState(false);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // 관심종목 탭(그룹). "내 보유종목"은 DB에 저장되지 않는 고정 탭이라 groups에는 포함되지 않는다.
+  const [groups, setGroups] = useState<WatchlistGroupRow[]>([]);
+  const [activeTabKey, setActiveTabKey] = useState<string>(HOLDINGS_TAB_KEY);
+  const [renameTarget, setRenameTarget] = useState<WatchlistGroupRow | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+
+  const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+  const [holdingsSummary, setHoldingsSummary] = useState<HoldingsSummary | null>(null);
+  const [holdingsLoading, setHoldingsLoading] = useState(false);
+  // 보유종목 응답에는 정확한 거래소 코드(KOSPI/NASDAQ 등)가 없어, 차트를 열려면 로컬
+  // 종목 캐시에서 심볼별 거래소를 따로 조회해야 한다. 캐시에 없는 심볼은 클릭해도 열리지 않는다.
+  const [holdingMarkets, setHoldingMarkets] = useState<Record<string, TossExchange>>({});
+
+  // 삭제 등으로 activeTabKey가 더 이상 존재하지 않는 그룹을 가리키게 되면, 첫 번째 관심종목
+  // 탭으로(하나도 없으면 보유종목 탭으로) 대신 보여준다. state로 따로 저장하지 않고 렌더링마다
+  // 파생시켜야 groups가 바뀔 때 setState를 또 호출하는 effect 연쇄가 생기지 않는다.
+  const displayedTabKey =
+    activeTabKey === HOLDINGS_TAB_KEY || groups.some((group) => String(group.id) === activeTabKey)
+      ? activeTabKey
+      : groups[0]
+        ? String(groups[0].id)
+        : HOLDINGS_TAB_KEY;
 
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -95,9 +146,46 @@ export default function MarketPage() {
       .catch(() => setWatchlist([]));
   }, []);
 
+  const loadGroups = useCallback(() => {
+    api
+      .listWatchlistGroups()
+      .then((rows) => setGroups(rows))
+      .catch(() => setGroups([]));
+  }, []);
+
+  const loadHoldings = useCallback(async () => {
+    setHoldingsLoading(true);
+    try {
+      const accountList = await api.listAccounts();
+      setAccounts(Array.isArray(accountList) ? accountList : []);
+      if (Array.isArray(accountList) && accountList[0]) {
+        const summary = await api.getHoldings(String(accountList[0].accountSeq));
+        setHoldingsSummary(summary);
+        if (summary.items.length > 0) {
+          api
+            .getStocksBySymbols(summary.items.map((item) => item.symbol))
+            .then((rows) => setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))))
+            .catch(() => setHoldingMarkets({}));
+        } else {
+          setHoldingMarkets({});
+        }
+      } else {
+        setHoldingsSummary(null);
+        setHoldingMarkets({});
+      }
+    } catch {
+      setHoldingsSummary(null);
+    } finally {
+      setHoldingsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadWatchlist();
-  }, [loadWatchlist]);
+    loadGroups();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 1회 초기 로딩(표준 fetch-on-mount 패턴)
+    loadHoldings();
+  }, [loadWatchlist, loadGroups, loadHoldings]);
 
   // 관심종목/선택된 종목이 바뀔 때마다 main 프로세스에 구독 대상 전체를 다시 선언한다(full-replace).
   useEffect(() => {
@@ -285,10 +373,10 @@ export default function MarketPage() {
   }, [handleLoadMore]);
 
   const handleSelectFromSearch = useCallback(
-    async (stock: StockRow) => {
+    async (stock: StockRow, groupId: number) => {
       await loadSymbol(stock);
       try {
-        await api.addToWatchlist({ symbol: stock.symbol, name: stock.name, market: stock.market });
+        await api.addToWatchlist({ groupId, symbol: stock.symbol, name: stock.name, market: stock.market });
         loadWatchlist();
       } catch {
         message.error('관심종목 저장에 실패했습니다.');
@@ -298,10 +386,10 @@ export default function MarketPage() {
   );
 
   const handleRemove = useCallback(
-    async (symbol: string) => {
+    async (groupId: number, symbol: string) => {
       setWatchlistBusy(true);
       try {
-        await api.removeFromWatchlist(symbol);
+        await api.removeFromWatchlist(groupId, symbol);
         loadWatchlist();
       } catch {
         message.error('관심종목 삭제에 실패했습니다.');
@@ -312,83 +400,313 @@ export default function MarketPage() {
     [loadWatchlist, message],
   );
 
+  // 탭을 옮기면 그 탭의 첫 번째 종목 차트를 바로 연다(없으면 차트를 비운다).
+  const openFirstSymbolOfTab = useCallback(
+    (key: string) => {
+      if (key === HOLDINGS_TAB_KEY) {
+        const first = holdingsSummary?.items[0];
+        const market = first ? holdingMarkets[first.symbol] : undefined;
+        if (first && market) {
+          loadSymbol({ symbol: first.symbol, name: first.name, market });
+        } else {
+          setSelected(null);
+        }
+        return;
+      }
+      // watchlist는 listWatchlist의 정렬(group_id, sort_order, created_at) 순서 그대로라
+      // 같은 group_id를 가진 첫 항목이 곧 그 탭의 첫 번째 종목이다.
+      const groupId = Number(key);
+      const first = watchlist.find((row) => row.group_id === groupId);
+      if (first) {
+        loadSymbol(first);
+      } else {
+        setSelected(null);
+      }
+    },
+    [holdingsSummary, holdingMarkets, watchlist, loadSymbol],
+  );
+
+  const handleTabChange = useCallback(
+    (key: string) => {
+      setActiveTabKey(key);
+      openFirstSymbolOfTab(key);
+    },
+    [openFirstSymbolOfTab],
+  );
+
+  const submitAddGroup = useCallback(async () => {
+    const name = newGroupName.trim();
+    if (!name) return;
+    try {
+      const group = await api.createWatchlistGroup(name);
+      setNewGroupName('');
+      setCreatingGroup(false);
+      loadGroups();
+      handleTabChange(String(group.id));
+    } catch {
+      message.error('탭 생성에 실패했습니다.');
+    }
+  }, [newGroupName, loadGroups, handleTabChange, message]);
+
+  const handleDeleteGroup = useCallback(
+    (group: WatchlistGroupRow) => {
+      Modal.confirm({
+        title: `"${group.name}" 탭을 삭제할까요?`,
+        content: '탭에 담긴 관심종목도 함께 삭제됩니다.',
+        okText: '삭제',
+        okButtonProps: { danger: true },
+        cancelText: '취소',
+        onOk: async () => {
+          try {
+            await api.deleteWatchlistGroup(group.id);
+            loadGroups();
+            loadWatchlist();
+          } catch {
+            message.error('탭 삭제에 실패했습니다.');
+          }
+        },
+      });
+    },
+    [loadGroups, loadWatchlist, message],
+  );
+
+  const handleTabEdit: NonNullable<TabsProps['onEdit']> = useCallback(
+    (targetKey, action) => {
+      if (action === 'add') {
+        setNewGroupName('');
+        setCreatingGroup(true);
+        return;
+      }
+      const group = groups.find((g) => String(g.id) === String(targetKey));
+      if (group) handleDeleteGroup(group);
+    },
+    [groups, handleDeleteGroup],
+  );
+
+  const submitRenameGroup = useCallback(async () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    try {
+      await api.renameWatchlistGroup(renameTarget.id, name);
+      setRenameTarget(null);
+      loadGroups();
+    } catch {
+      message.error('탭 이름 변경에 실패했습니다.');
+    }
+  }, [renameTarget, renameValue, loadGroups, message]);
+
   return (
     <AppLayout title="시세/차트">
       <Head>
         <title>시세/차트 - 토스증권 알림</title>
       </Head>
 
-      <Card style={{ marginBottom: 16 }}>
-        <AutoComplete
-          style={{ width: 320 }}
-          placeholder="종목명 또는 코드 검색"
-          value={query}
-          onChange={setQuery}
-          options={options.map((stock) => ({
-            value: stock.symbol,
-            label: `${stock.name} (${stock.symbol})`,
-          }))}
-          onSelect={(value: string) => {
-            const stock = options.find((item) => item.symbol === value);
-            if (stock) handleSelectFromSearch(stock);
-          }}
-        />
-        {query.length > 0 && options.length === 0 && (
-          <Text type="secondary" style={{ marginLeft: 12 }}>
-            검색 결과가 없습니다. 설정 화면에서 종목 캐시 동기화 상태를 확인하세요.
-          </Text>
-        )}
-      </Card>
-
       <Card title="관심종목" style={{ marginBottom: 16 }}>
-        <Table<WatchlistRow>
-          rowKey="id"
-          size="small"
-          dataSource={watchlist}
-          pagination={false}
-          locale={{ emptyText: '종목을 검색해서 선택하면 관심종목에 자동으로 저장됩니다.' }}
-          columns={[
+        <Tabs
+          type="editable-card"
+          hideAdd={false}
+          activeKey={displayedTabKey}
+          onChange={handleTabChange}
+          onEdit={handleTabEdit}
+          addIcon={<PlusOutlined />}
+          items={[
             {
-              title: '종목',
-              key: 'symbol',
-              render: (_value, record) => (
-                <a onClick={() => loadSymbol(record)}>{<StockCell name={record.name} symbol={record.symbol} />}</a>
+              key: HOLDINGS_TAB_KEY,
+              label: '내 보유종목',
+              closable: false,
+              children: (
+                <Table<Holding>
+                  rowKey="symbol"
+                  size="small"
+                  loading={holdingsLoading}
+                  dataSource={holdingsSummary?.items ?? []}
+                  pagination={false}
+                  locale={{
+                    emptyText: accounts.length
+                      ? '보유 종목이 없습니다.'
+                      : '계좌 정보를 불러오는 중이거나 연결된 계좌가 없습니다.',
+                  }}
+                  columns={[
+                    {
+                      title: '종목',
+                      key: 'symbol',
+                      render: (_value, record) => {
+                        const market = holdingMarkets[record.symbol];
+                        return (
+                          <a
+                            onClick={() => {
+                              if (!market) {
+                                message.error(
+                                  '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
+                                );
+                                return;
+                              }
+                              loadSymbol({ symbol: record.symbol, name: record.name, market });
+                            }}
+                          >
+                            <StockCell name={record.name} symbol={record.symbol} />
+                          </a>
+                        );
+                      },
+                    },
+                    {
+                      title: '수량',
+                      dataIndex: 'quantity',
+                      align: 'right',
+                      render: (value: string) =>
+                        Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 }),
+                    },
+                    {
+                      title: '현재가',
+                      key: 'price',
+                      align: 'right',
+                      render: (_value, record) => (
+                        <PriceBlock currency={record.currency} main={Number(record.lastPrice).toLocaleString()} />
+                      ),
+                    },
+                    {
+                      title: '평가손익',
+                      key: 'profitLoss',
+                      align: 'right',
+                      render: (_value, record) => (
+                        <PriceBlock
+                          currency={record.currency}
+                          main={formatAmount(record.profitLoss.amount)}
+                          secondary={formatRate(record.profitLoss.rate)}
+                          color={profitColor(Number(record.profitLoss.amount))}
+                        />
+                      ),
+                    },
+                  ]}
+                />
               ),
             },
-            { title: '마켓', dataIndex: 'market' },
-            {
-              title: '현재가',
-              key: 'price',
-              align: 'right',
-              render: (_value, record) => {
-                const quote = watchlistPrices[record.symbol];
-                return quote ? renderPriceBlock(quote) : '-';
-              },
-            },
-            {
-              title: '',
-              key: 'actions',
-              width: 64,
-              render: (_value, record) => (
-                <Popconfirm
-                  title={`"${record.name}" 관심종목을 삭제할까요?`}
-                  onConfirm={() => handleRemove(record.symbol)}
-                  okText="삭제"
-                  cancelText="취소"
-                >
-                  <Button
-                    type="text"
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    disabled={watchlistBusy}
+            ...groups.map((group) => ({
+              key: String(group.id),
+              label: (
+                <span>
+                  {group.name}
+                  <EditOutlined
+                    style={{ marginLeft: 8 }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setRenameTarget(group);
+                      setRenameValue(group.name);
+                    }}
                   />
-                </Popconfirm>
+                </span>
               ),
-            },
+              children: (
+                <>
+                  <AutoComplete
+                    style={{ width: 320, marginBottom: 12 }}
+                    placeholder="종목명 또는 코드 검색"
+                    value={displayedTabKey === String(group.id) ? query : ''}
+                    onChange={setQuery}
+                    options={options.map((stock) => ({
+                      value: stock.symbol,
+                      label: `${stock.name} (${stock.symbol})`,
+                    }))}
+                    onSelect={(value: string) => {
+                      const stock = options.find((item) => item.symbol === value);
+                      if (stock) handleSelectFromSearch(stock, group.id);
+                    }}
+                  />
+                  {displayedTabKey === String(group.id) && query.length > 0 && options.length === 0 && (
+                    <Text type="secondary" style={{ marginLeft: 12 }}>
+                      검색 결과가 없습니다. 설정 화면에서 종목 캐시 동기화 상태를 확인하세요.
+                    </Text>
+                  )}
+                  <Table<WatchlistRow>
+                    rowKey="id"
+                    size="small"
+                    dataSource={watchlist.filter((row) => row.group_id === group.id)}
+                    pagination={false}
+                    locale={{ emptyText: '종목을 검색해서 선택하면 이 탭에 저장됩니다.' }}
+                    columns={[
+                      {
+                        title: '종목',
+                        key: 'symbol',
+                        render: (_value, record) => (
+                          <a onClick={() => loadSymbol(record)}>
+                            {<StockCell name={record.name} symbol={record.symbol} />}
+                          </a>
+                        ),
+                      },
+                      { title: '마켓', dataIndex: 'market' },
+                      {
+                        title: '현재가',
+                        key: 'price',
+                        align: 'right',
+                        render: (_value, record) => {
+                          const quote = watchlistPrices[record.symbol];
+                          return quote ? renderPriceBlock(quote) : '-';
+                        },
+                      },
+                      {
+                        title: '',
+                        key: 'actions',
+                        width: 64,
+                        render: (_value, record) => (
+                          <Popconfirm
+                            title={`"${record.name}" 관심종목을 삭제할까요?`}
+                            onConfirm={() => handleRemove(group.id, record.symbol)}
+                            okText="삭제"
+                            cancelText="취소"
+                          >
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined />}
+                              disabled={watchlistBusy}
+                            />
+                          </Popconfirm>
+                        ),
+                      },
+                    ]}
+                  />
+                </>
+              ),
+            })),
           ]}
         />
       </Card>
+
+      <Modal
+        title="새 탭 추가"
+        open={creatingGroup}
+        onOk={submitAddGroup}
+        onCancel={() => setCreatingGroup(false)}
+        okText="추가"
+        cancelText="취소"
+      >
+        <Input
+          placeholder="탭 이름"
+          value={newGroupName}
+          onChange={(event) => setNewGroupName(event.target.value)}
+          onPressEnter={submitAddGroup}
+          autoFocus
+        />
+      </Modal>
+
+      <Modal
+        title="탭 이름 변경"
+        open={renameTarget !== null}
+        onOk={submitRenameGroup}
+        onCancel={() => setRenameTarget(null)}
+        okText="변경"
+        cancelText="취소"
+      >
+        <Input
+          placeholder="탭 이름"
+          value={renameValue}
+          onChange={(event) => setRenameValue(event.target.value)}
+          onPressEnter={submitRenameGroup}
+          autoFocus
+        />
+      </Modal>
 
       {!selected && (
         <Card style={{ marginBottom: 16 }}>

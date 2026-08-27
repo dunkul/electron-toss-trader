@@ -14,11 +14,17 @@ export const IPC_CHANNELS = {
   STOCKS_SEARCH: 'stocks:search',
   STOCKS_STATUS: 'stocks:status',
   STOCKS_REFRESH: 'stocks:refresh',
+  STOCKS_GET_BY_SYMBOLS: 'stocks:getBySymbols',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
+  WATCHLIST_GROUPS_LIST: 'watchlist-groups:list',
+  WATCHLIST_GROUP_CREATE: 'watchlist-groups:create',
+  WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',
+  WATCHLIST_GROUP_DELETE: 'watchlist-groups:delete',
+  RANKING_LIST: 'ranking:list',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 실시간 구독할 종목 전체 목록을 매번 새로 선언(full-replace)
   MARKET_SUBSCRIBE: 'market:subscribe',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)

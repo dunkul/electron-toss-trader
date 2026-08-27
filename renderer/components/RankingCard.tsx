@@ -6,6 +6,7 @@ import StockCell from './StockCell';
 import PriceBlock from './PriceBlock';
 import { api } from '../lib/ipc';
 import { formatCompactAmount, formatRate, profitColor } from '../lib/format';
+import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type { Market, RankingDuration, RankingItem, RankingType } from '../lib/ipc';
 
 const { Text } = Typography;
@@ -51,18 +52,16 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
   const [type, setType] = useState<RankingType>('MARKET_TRADING_AMOUNT');
   const [duration, setDuration] = useState<RankingDuration>('realtime');
   const [rankings, setRankings] = useState<RankingItem[]>([]);
-  const [rankedAt, setRankedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tableWrapRef, tableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const result = await api.getRankings({ type, marketCountry: market, duration, count: 10 });
       setRankings(result.rankings);
-      setRankedAt(result.rankedAt);
     } catch {
       setRankings([]);
-      setRankedAt(null);
     } finally {
       setLoading(false);
     }
@@ -135,17 +134,25 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
       title="주식 랭킹"
       extra={
         <Space size={8}>
-          {rankedAt && (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {new Date(rankedAt).toLocaleTimeString('ko-KR')} 기준
-            </Text>
-          )}
-          <Button type="text" size="small" icon={<ReloadOutlined spin={loading} />} onClick={handleRefreshClick} />
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined spin={loading} />}
+            onClick={handleRefreshClick}
+          />
         </Space>
       }
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{
+        body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+      }}
     >
-      <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-        <Space size={8} wrap>
+      {/* antd Space는 자식마다 별도 .ant-space-item div로 한 번 더 감싸서, 그 안의 flex:1은
+          진짜 flex 컨테이너의 직계 자식이 아니게 되어 먹히지 않는다(테이블 높이가 안 늘어나고
+          제자리에서만 스크롤 박스가 눌려버려 행이 거의 안 보이는 버그로 나타남) — 높이가
+          중요한 이 wrapper는 Space 대신 순수 flex div로 만든다. */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Space size={8} wrap style={{ flex: 'none' }}>
           <Segmented
             value={market}
             onChange={(value) => setMarket(value as Market)}
@@ -163,15 +170,20 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
           <Select value={duration} onChange={setDuration} options={durationOptions} style={{ width: 84 }} />
         </Space>
 
-        <Table<RankingItem>
-          size="small"
-          rowKey="symbol"
-          pagination={false}
-          dataSource={rankings}
-          locale={{ emptyText: '집계된 랭킹이 없습니다.' }}
-          columns={columns}
-        />
-      </Space>
+        {/* 랭킹은 최대 10건이라 대부분은 안 넘치지만, 시세/차트의 관심종목 카드와 같은 방식으로
+            남은 세로 공간만큼 잡아서(scroll.y) 창 높이에 맞춰 카드 자체 크기가 늘어나게 한다. */}
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0 }}>
+          <Table<RankingItem>
+            size="small"
+            rowKey="symbol"
+            pagination={false}
+            scroll={{ y: Math.max(tableWrapHeight - TABLE_HEADER_HEIGHT_SM, 0) }}
+            dataSource={rankings}
+            locale={{ emptyText: '집계된 랭킹이 없습니다.' }}
+            columns={columns}
+          />
+        </div>
+      </div>
     </Card>
   );
 });

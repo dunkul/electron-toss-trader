@@ -9,6 +9,7 @@ import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import { api, onStrategySignal } from '../lib/ipc';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
+import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type {
   AccountSummary,
   Holding,
@@ -32,6 +33,7 @@ export default function HomePage() {
   const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
   const [holdingsMarket, setHoldingsMarket] = useState<Market>('KR');
   const rankingCardRef = useRef<RankingCardHandle>(null);
+  const [holdingsTableWrapRef, holdingsTableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
   const loadDashboard = useCallback(async () => {
     setError(null);
@@ -123,7 +125,7 @@ export default function HomePage() {
           <PriceBlock
             currency={record.currency}
             main={Number(value).toLocaleString()}
-            secondary={`${formatAmount(dailyChangePerShare)}(${formatRate(record.dailyProfitLoss.rate)})`}
+            secondary={`${formatAmount(dailyChangePerShare, record.currency)}(${formatRate(record.dailyProfitLoss.rate)})`}
             color={profitColor(dailyChangePerShare)}
           />
         );
@@ -139,7 +141,7 @@ export default function HomePage() {
         return (
           <PriceBlock
             currency={record.currency}
-            main={formatAmount(value.amount)}
+            main={formatAmount(value.amount, record.currency)}
             secondary={formatRate(value.rate)}
             color={profitColor(amount)}
           />
@@ -151,85 +153,98 @@ export default function HomePage() {
   return (
     <AppLayout>
       <Head>
-        <title>대시보드 - 토스증권 알림</title>
+        <title>대시보드 - 토스 트레이더</title>
       </Head>
 
-      {error && <Alert type="error" message={error} showIcon closable style={{ marginBottom: 16 }} />}
+      {/* 시세/차트 페이지의 관심종목 카드와 같은 패턴: 아래쪽 Row를 뷰포트 남은 높이에 맞춰 채우고,
+          그 안의 두 카드는 각자 내부 테이블만 scroll.y로 스크롤되게 해서 페이지 전체가 늘어나
+          문서 스크롤이 생기는 대신 카드 안에서만 스크롤되게 한다. */}
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {error && (
+          <Alert type="error" message={error} showIcon closable style={{ marginBottom: 16, flex: 'none' }} />
+        )}
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic title="등록 계좌 수" value={accounts.length} suffix="개" />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="감시 중인 전략"
-              value={activeStrategies.length}
-              suffix={`/ ${strategies.length}개`}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic title="최근 알림" value={signals.length} suffix="건" />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="평가손익 (원화 보유분)"
-              value={holdingsSummary ? formatKrw(holdingsSummary.profitLoss.amount.krw) : '-'}
-              suffix={holdingsSummary ? formatRate(holdingsSummary.profitLoss.rate) : undefined}
-              styles={{ content: { color: profitColor(profitLossKrw) } }}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={12}>
-          <Card
-            title="보유 종목"
-            extra={
-              <Button
-                type="text"
-                size="small"
-                icon={<ReloadOutlined spin={holdingsRefreshing} />}
-                onClick={handleHoldingsRefreshClick}
-                disabled={accounts.length === 0}
+        <Row gutter={16} style={{ marginBottom: 16, flex: 'none' }}>
+          <Col span={6}>
+            <Card>
+              <Statistic title="등록 계좌 수" value={accounts.length} suffix="개" />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="감시 중인 전략"
+                value={activeStrategies.length}
+                suffix={`/ ${strategies.length}개`}
               />
-            }
-            style={{ marginBottom: 16, minWidth: 450 }}
-          >
-            <Segmented
-              value={holdingsMarket}
-              onChange={(value) => setHoldingsMarket(value as Market)}
-              options={[
-                { label: '국내', value: 'KR' },
-                { label: '해외', value: 'US' },
-              ]}
-              style={{ marginBottom: 12 }}
-            />
-            <Table<Holding>
-              size="small"
-              rowKey="symbol"
-              pagination={false}
-              tableLayout="fixed"
-              dataSource={holdingsMarket === 'KR' ? krHoldings : usHoldings}
-              locale={{
-                emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
-              }}
-              columns={holdingColumns}
-            />
-          </Card>
-        </Col>
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic title="최근 알림" value={signals.length} suffix="건" />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="평가손익 (원화 보유분)"
+                value={holdingsSummary ? formatKrw(holdingsSummary.profitLoss.amount.krw) : '-'}
+                suffix={holdingsSummary ? formatRate(holdingsSummary.profitLoss.rate) : undefined}
+                styles={{ content: { color: profitColor(profitLossKrw) } }}
+              />
+            </Card>
+          </Col>
+        </Row>
 
-        <Col xs={24} xl={12}>
-          <RankingCard ref={rankingCardRef} onRefresh={refreshHoldings} />
-        </Col>
-      </Row>
+        <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
+          <Col xs={24} xl={12} style={{ height: '100%' }}>
+            <Card
+              title="보유 종목"
+              extra={
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<ReloadOutlined spin={holdingsRefreshing} />}
+                  onClick={handleHoldingsRefreshClick}
+                  disabled={accounts.length === 0}
+                />
+              }
+              style={{ height: '100%', minWidth: 450, display: 'flex', flexDirection: 'column' }}
+              styles={{
+                body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+              }}
+            >
+              <Segmented
+                value={holdingsMarket}
+                onChange={(value) => setHoldingsMarket(value as Market)}
+                options={[
+                  { label: '국내', value: 'KR' },
+                  { label: '해외', value: 'US' },
+                ]}
+                style={{ marginBottom: 12, flex: 'none', alignSelf: 'flex-start' }}
+              />
+              <div ref={holdingsTableWrapRef} style={{ flex: 1, minHeight: 0 }}>
+                <Table<Holding>
+                  size="small"
+                  rowKey="symbol"
+                  pagination={false}
+                  tableLayout="fixed"
+                  scroll={{ y: Math.max(holdingsTableWrapHeight - TABLE_HEADER_HEIGHT_SM, 0) }}
+                  dataSource={holdingsMarket === 'KR' ? krHoldings : usHoldings}
+                  locale={{
+                    emptyText: accounts.length ? '보유 종목이 없습니다.' : '계좌 정보를 불러오는 중입니다.',
+                  }}
+                  columns={holdingColumns}
+                />
+              </div>
+            </Card>
+          </Col>
+
+          <Col xs={24} xl={12} style={{ height: '100%' }}>
+            <RankingCard ref={rankingCardRef} onRefresh={refreshHoldings} />
+          </Col>
+        </Row>
+      </div>
     </AppLayout>
   );
 }

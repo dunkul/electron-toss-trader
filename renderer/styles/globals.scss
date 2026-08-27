@@ -67,6 +67,22 @@ body.app-ready {
   flex-direction: column;
 }
 
+// 비활성 탭(.ant-tabs-content-hidden)은 antd 기본 규칙(display:none)이 있지만, 위 규칙의
+// 클래스 2개짜리 선택자가 그보다 우선순위가 높아서 계속 보여버린다(그래서 탭을 바꿔도 이전
+// 탭 내용이 위에, 새 탭이 그 아래에 같이 쌓여 보이는 버그가 생김) — 명시적으로 다시 숨긴다.
+.watchlist-tabs .ant-tabs-content.ant-tabs-content-hidden {
+  display: none;
+}
+
+// antd Table의 scroll.y 내부 스크롤 박스(rc-table)는 행이 하나라도 있으면 실제로 넘치는지와
+// 상관없이 무조건 overflow-y:scroll을 인라인 스타일로 강제한다(스크롤 등장/사라짐으로 인한
+// 레이아웃 흔들림 방지 목적) — 그래서 종목 수가 적어 안 넘쳐도 스크롤 영역이 항상 보인다.
+// 실제로 넘칠 때만 보이도록 auto로 덮어쓴다(인라인 스타일을 이겨야 하니 !important 필요).
+.ant-table-content,
+.ant-table-body {
+  overflow-y: auto !important;
+}
+
 // 전역 스크롤바 디자인 — 항상 표시하되, 얇고 옅은 색으로 눈에 거슬리지 않게 둔다
 // (Electron=Chromium 전제라 webkit 스크롤바 의사요소만 다룬다).
 * {

@@ -91,6 +91,12 @@ export async function toggleStrategy(
     .executeTakeFirst();
 }
 
+// strategy_signals.strategy_id는 ON DELETE CASCADE 없이 strategies(id)를 참조하므로(FK 제약이
+// 켜져 있음, connection.ts 참고), 신호 이력이 하나라도 쌓인 전략은 이 삭제를 먼저 안 하면
+// FOREIGN KEY constraint failed로 실패한다.
 export async function deleteStrategy(db: Kysely<Database>, id: number): Promise<void> {
-  await db.deleteFrom('strategies').where('id', '=', id).execute();
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('strategy_signals').where('strategy_id', '=', id).execute();
+    await trx.deleteFrom('strategies').where('id', '=', id).execute();
+  });
 }

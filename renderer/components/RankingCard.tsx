@@ -87,6 +87,21 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     onRefresh?.();
   };
 
+  // 랭킹 API 응답에는 거래소 코드(KOSPI/NASDAQ 등)가 없어, 차트 창을 열려면 로컬 종목
+  // 캐시에서 먼저 조회해야 한다(WatchlistPanel의 보유종목 탭과 같은 방식).
+  const handleOpenChart = async (record: RankingItem) => {
+    try {
+      const [stock] = await api.getStocksBySymbols([record.symbol]);
+      if (!stock) {
+        message.error('종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+        return;
+      }
+      api.openChartWindow({ symbol: stock.symbol, name: record.name ?? stock.name, market: stock.market });
+    } catch {
+      message.error('차트 창을 여는 데 실패했습니다.');
+    }
+  };
+
   const handleTypeChange = (value: RankingType) => {
     setType(value);
     if (REALTIME_UNSUPPORTED.has(value) && duration === 'realtime') setDuration('1d');
@@ -107,7 +122,11 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     {
       title: '종목',
       key: 'symbol',
-      render: (_value, record) => <StockCell name={record.name ?? record.symbol} symbol={record.symbol} />,
+      render: (_value, record) => (
+        <a onClick={() => handleOpenChart(record)}>
+          <StockCell name={record.name ?? record.symbol} symbol={record.symbol} />
+        </a>
+      ),
     },
     {
       title: '현재가',

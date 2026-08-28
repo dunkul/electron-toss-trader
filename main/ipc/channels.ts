@@ -28,7 +28,11 @@ export const IPC_CHANNELS = {
   RANKING_LIST: 'ranking:list',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 실시간 구독할 종목 전체 목록을 매번 새로 선언(full-replace)
   MARKET_SUBSCRIBE: 'market:subscribe',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 차트를 별도 창으로 띄운다
+  WINDOW_OPEN_CHART: 'window:openChart',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
+  // 차트 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트
+  WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
 } as const;

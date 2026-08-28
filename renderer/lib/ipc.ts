@@ -23,6 +23,7 @@ import type {
 import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
+import type { ChartWindowStock } from '../../main/ipc/register';
 
 // main/ipc/channels.ts의 채널 이름과 반드시 일치해야 한다.
 // (renderer는 main 프로세스 코드를 직접 import하지 않는다 — 이 문자열들은 값이 아니라 타입만 main에서 가져온다)
@@ -53,8 +54,10 @@ const CHANNELS = {
   WATCHLIST_GROUP_DELETE: 'watchlist-groups:delete',
   RANKING_LIST: 'ranking:list',
   MARKET_SUBSCRIBE: 'market:subscribe',
+  WINDOW_OPEN_CHART: 'window:openChart',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
+  WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
 } as const;
 
 export interface StocksStatus {
@@ -144,7 +147,11 @@ export const api = {
   testNotification: () => window.ipc.invoke<void>(CHANNELS.NOTIFICATIONS_TEST),
 
   subscribeMarket: (symbols: WsSymbolRef[]) => window.ipc.send(CHANNELS.MARKET_SUBSCRIBE, symbols),
+
+  openChartWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_CHART, stock),
 };
+
+export type { ChartWindowStock };
 
 export function onStrategySignal(callback: (payload: SignalNotification) => void): () => void {
   return window.ipc.on<SignalNotification>(CHANNELS.STRATEGY_SIGNAL_EVENT, callback);
@@ -152,4 +159,10 @@ export function onStrategySignal(callback: (payload: SignalNotification) => void
 
 export function onMarketTick(callback: (tick: MarketTick) => void): () => void {
   return window.ipc.on<MarketTick>(CHANNELS.MARKET_TICK_EVENT, callback);
+}
+
+// 차트 팝업 창(chart-window.tsx)이 이미 떠 있는 상태에서 다른 종목을 클릭하면, 새 창을 여는 대신
+// 이 이벤트로 같은 창의 표시 종목만 바꾼다.
+export function onChartWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
+  return window.ipc.on<ChartWindowStock>(CHANNELS.WINDOW_CHART_UPDATE_EVENT, callback);
 }

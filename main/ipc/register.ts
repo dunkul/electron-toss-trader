@@ -1,6 +1,6 @@
 import type { Kysely } from 'kysely';
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
-import type { Database } from '../db/schema';
+import type { Database, TossExchange } from '../db/schema';
 import {
   createStrategy,
   deleteStrategy,
@@ -56,16 +56,24 @@ function handle<Args extends unknown[], R>(
   });
 }
 
-export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketWsClient): void {
+export interface ChartWindowStock {
+  symbol: string;
+  name: string;
+  market: TossExchange;
+}
+
+export function registerIpcHandlers(
+  db: Kysely<Database>,
+  wsClient?: TossMarketWsClient,
+  openChartWindow?: (stock: ChartWindowStock) => void,
+): void {
   handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
   handle(IPC_CHANNELS.ACCOUNTS_HOLDINGS, (_event, accountSeq: string) => getHoldings(db, accountSeq));
 
   handle(IPC_CHANNELS.STRATEGY_LIST, () => listStrategies(db));
 
-  handle(IPC_CHANNELS.STRATEGY_CREATE, (_event, input: CreateStrategyInput) =>
-    createStrategy(db, input),
-  );
+  handle(IPC_CHANNELS.STRATEGY_CREATE, (_event, input: CreateStrategyInput) => createStrategy(db, input));
 
   handle(IPC_CHANNELS.STRATEGY_UPDATE, (_event, id: number, input: UpdateStrategyInput) =>
     updateStrategy(db, id, input),
@@ -98,9 +106,7 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
     return { count, lastSyncedAt };
   });
 
-  handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) =>
-    getStocksBySymbols(db, symbols),
-  );
+  handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) => getStocksBySymbols(db, symbols));
 
   handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
 
@@ -112,9 +118,7 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
 
   handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
 
-  handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) =>
-    addToWatchlist(db, input),
-  );
+  handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) => addToWatchlist(db, input));
 
   handle(IPC_CHANNELS.WATCHLIST_REMOVE, async (_event, groupId: number, symbol: string) => {
     await removeFromWatchlist(db, groupId, symbol);
@@ -126,9 +130,7 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
 
   handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
 
-  handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) =>
-    createWatchlistGroup(db, name),
-  );
+  handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) => createWatchlistGroup(db, name));
 
   handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, async (_event, id: number, name: string) => {
     await renameWatchlistGroup(db, id, name);
@@ -140,8 +142,35 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
 
   handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));
 
-  ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (_event, symbols: WsSymbolRef[]) => {
-    wsClient?.setSymbols(symbols);
+  // 여러 창(대시보드/시세 화면/차트 팝업)이 각자 자기 몫의 구독을 선언하는데, wsClient.setSymbols는
+  // full-replace라 그냥 그대로 넘기면 나중에 도착한 창의 선언이 앞서 도착한 다른 창의 구독을
+  // 지워버린다 — 창(sender)별로 최근 선언을 따로 들고 있다가 합쳐서 넘긴다.
+  const subscriptionsBySender = new Map<number, WsSymbolRef[]>();
+  const trackedSenderIds = new Set<number>();
+
+  function pushMergedSubscription(): void {
+    const merged = new Map<string, WsSymbolRef>();
+    for (const refs of subscriptionsBySender.values()) {
+      for (const ref of refs) merged.set(ref.symbol, ref);
+    }
+    wsClient?.setSymbols([...merged.values()]);
+  }
+
+  ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (event, symbols: WsSymbolRef[]) => {
+    subscriptionsBySender.set(event.sender.id, symbols);
+    if (!trackedSenderIds.has(event.sender.id)) {
+      trackedSenderIds.add(event.sender.id);
+      event.sender.once('destroyed', () => {
+        subscriptionsBySender.delete(event.sender.id);
+        trackedSenderIds.delete(event.sender.id);
+        pushMergedSubscription();
+      });
+    }
+    pushMergedSubscription();
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_CHART, (_event, stock: ChartWindowStock) => {
+    openChartWindow?.(stock);
   });
 
   if (wsClient) {

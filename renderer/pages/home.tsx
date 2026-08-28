@@ -18,6 +18,7 @@ import type {
   Market,
   StrategyRow,
   StrategySignalRow,
+  TossExchange,
 } from '../lib/ipc';
 
 function formatKrw(value: string): string {
@@ -25,16 +26,31 @@ function formatKrw(value: string): string {
 }
 
 export default function HomePage() {
-  const { notification } = App.useApp();
+  const { notification, message } = App.useApp();
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [holdingsSummary, setHoldingsSummary] = useState<HoldingsSummary | null>(null);
+  // 보유종목 응답에는 정확한 거래소 코드(KOSPI/NASDAQ 등)가 없어, 차트 창을 열려면 로컬
+  // 종목 캐시에서 심볼별 거래소를 따로 조회해야 한다(WatchlistPanel의 보유종목 탭과 같은 방식).
+  const [holdingMarkets, setHoldingMarkets] = useState<Record<string, TossExchange>>({});
   const [strategies, setStrategies] = useState<StrategyRow[]>([]);
   const [signals, setSignals] = useState<StrategySignalRow[]>([]);
   const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
   const [holdingsMarket, setHoldingsMarket] = useState<Market>('KR');
   const rankingCardRef = useRef<RankingCardHandle>(null);
   const [holdingsTableWrapRef, holdingsTableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
+
+  const loadHoldingMarkets = useCallback((summary: HoldingsSummary) => {
+    const symbols = summary.items.map((item) => item.symbol);
+    if (symbols.length === 0) {
+      setHoldingMarkets({});
+      return;
+    }
+    api
+      .getStocksBySymbols(symbols)
+      .then((rows) => setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))))
+      .catch(() => setHoldingMarkets({}));
+  }, []);
 
   const loadDashboard = useCallback(async () => {
     setError(null);
@@ -51,11 +67,12 @@ export default function HomePage() {
       if (Array.isArray(accountList) && accountList[0]) {
         const summary = await api.getHoldings(String(accountList[0].accountSeq));
         setHoldingsSummary(summary);
+        loadHoldingMarkets(summary);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : '대시보드 정보를 불러오지 못했습니다.');
     }
-  }, []);
+  }, [loadHoldingMarkets]);
 
   const refreshHoldings = useCallback(async () => {
     const account = accounts[0];
@@ -64,13 +81,14 @@ export default function HomePage() {
     try {
       const summary = await api.getHoldings(String(account.accountSeq));
       setHoldingsSummary(summary);
+      loadHoldingMarkets(summary);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '보유 종목 정보를 불러오지 못했습니다.');
     } finally {
       setHoldingsRefreshing(false);
     }
-  }, [accounts]);
+  }, [accounts, loadHoldingMarkets]);
 
   // 보유 종목/주식 랭킹 중 어느 쪽 새로고침을 눌러도 둘 다 새로고침되도록 맞춘다.
   const handleHoldingsRefreshClick = useCallback(() => {
@@ -100,12 +118,25 @@ export default function HomePage() {
   const krHoldings = sortByProfitRateDesc(holdings.filter((h) => h.marketCountry === 'KR'));
   const usHoldings = sortByProfitRateDesc(holdings.filter((h) => h.marketCountry === 'US'));
 
+  const handleOpenHoldingChart = (holding: Holding) => {
+    const market = holdingMarkets[holding.symbol];
+    if (!market) {
+      message.error('종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+      return;
+    }
+    api.openChartWindow({ symbol: holding.symbol, name: holding.name, market });
+  };
+
   const holdingColumns: ColumnsType<Holding> = [
     {
       title: '종목',
       dataIndex: 'name',
       width: 170,
-      render: (value: string, record) => <StockCell name={value} symbol={record.symbol} />,
+      render: (value: string, record) => (
+        <a onClick={() => handleOpenHoldingChart(record)}>
+          <StockCell name={value} symbol={record.symbol} />
+        </a>
+      ),
     },
     {
       title: '수량',

@@ -421,8 +421,7 @@ export default function ChartCard({ stock }: ChartCardProps) {
   }, [stock.symbol, stock.market, loadCandles]);
 
   const handleLoadMore = useCallback(async () => {
-    // 1분봉은 API에 당일치만 있어 이전 페이지 요청이 항상 실패한다(토스트 스팸 방지) — 애초에 호출하지 않는다.
-    if (!nextBefore || loadingMoreRef.current || candleInterval === CANDLE_INTERVALS.ONE_MINUTE) return;
+    if (!nextBefore || loadingMoreRef.current) return;
     const symbol = stock.symbol;
     loadingMoreRef.current = true;
     setLoadingMore(true);

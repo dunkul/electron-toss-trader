@@ -29,9 +29,11 @@ Dev mode serves the renderer on a local port (nextron picks one, commonly 8888) 
 `http://localhost:<port>/home`. If dev startup fails because the port is stuck, `scripts/kill-port-8888.ps1`
 (or the `.bat` wrapper) frees it.
 
-Requires `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` in `.env` (see `.env.example`) to start the strategy
-engine and stock-master sync — without them `main.ts` logs a warning and skips both, but the UI still
-loads.
+`TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` are configured from the app's 설정(Settings) tab (encrypted at
+rest via `safeStorage`, see below) rather than `.env` — without them, `main.ts` skips starting the
+strategy engine/WS client/stock-master sync, and the renderer forces navigation to `/settings` and
+disables every other nav tab until a connection test succeeds. `.env`'s `TOSS_CLIENT_ID`/`SECRET` (see
+`.env.example`) still work as a dev-only fallback when nothing has been saved via Settings yet.
 
 ## Architecture
 
@@ -108,10 +110,20 @@ dev DB never collides with a packaged build's DB — this must run before any mo
 
 ### Secrets and logging
 
-`.env` holds `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` for local dev (per `docs/PLAN.md`, production is
-meant to migrate these into Electron `safeStorage`, but that migration isn't implemented yet — `.env`
-is still the only credential source in the current code). Never log `client_secret` or access tokens;
-`logger.ts` (pino) is the shared logger — use it instead of `console.*` in `main/`.
+`main/toss-api/config.ts` is the single choke point for `TOSS_CLIENT_ID`/`TOSS_CLIENT_SECRET` — nothing
+else reads `process.env.TOSS_CLIENT_ID`/`SECRET` or the credential settings rows directly.
+`loadTossApiCredentials(db)` runs once at boot (`main.ts`, before the `hasTossApiCredentials()` gate):
+it decrypts whatever's stored in the `settings` table (keys `toss_client_id_enc`/`toss_client_secret_enc`,
+`safeStorage.encryptString(...)` output as base64) into an in-memory cache, falling back to `.env` only
+if nothing's saved yet. `saveTossApiCredentials(db, id, secret)` (called from the
+`settings:saveCredentials` IPC handler, after `credentials-test.ts` verifies the values against the real
+API) re-encrypts and overwrites those same rows, then updates the cache. `getTossApiConfig()`/
+`hasTossApiCredentials()` read only the in-memory cache — synchronous, no DB round-trip — since
+`http-client.ts`/`token-manager.ts` need them on every request. There's no live-reload path for
+newly-saved credentials: the Settings page relaunches the app (`app:relaunch` IPC) after a successful
+save so `strategyEngine`/`wsClient` boot fresh with the new values. Never log `client_secret`, decrypted
+values, or access tokens; `logger.ts` (pino) is the shared logger — use it instead of `console.*` in
+`main/`.
 
 ### Renderer (`renderer/`)
 

@@ -26,10 +26,15 @@ export const IPC_CHANNELS = {
   WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',
   WATCHLIST_GROUP_DELETE: 'watchlist-groups:delete',
   RANKING_LIST: 'ranking:list',
+  SETTINGS_CREDENTIALS_STATUS: 'settings:credentialsStatus',
+  SETTINGS_SAVE_CREDENTIALS: 'settings:saveCredentials',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 실시간 구독할 종목 전체 목록을 매번 새로 선언(full-replace)
   MARKET_SUBSCRIBE: 'market:subscribe',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 차트를 별도 창으로 띄운다
   WINDOW_OPEN_CHART: 'window:openChart',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 자격증명 저장 후 전략엔진/WS 클라이언트를
+  // 깨끗하게 다시 초기화하기 위해 앱을 재시작한다
+  APP_RELAUNCH: 'app:relaunch',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',

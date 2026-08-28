@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Button, Card, Descriptions, Space, Typography } from 'antd';
+import { Alert, App, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
 import type { StocksStatus } from '../lib/ipc';
@@ -9,12 +9,40 @@ const { Paragraph, Text } = Typography;
 
 export default function SettingsPage() {
   const { message } = App.useApp();
+
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const [testingApi, setTestingApi] = useState(false);
   const [apiStatus, setApiStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [apiError, setApiError] = useState<string | null>(null);
 
   const [stocksStatus, setStocksStatus] = useState<StocksStatus | null>(null);
   const [loadingStocks, setLoadingStocks] = useState(false);
+
+  useEffect(() => {
+    api.getCredentialsStatus().then((status) => setConfigured(status.configured));
+  }, []);
+
+  const handleSaveCredentials = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await api.saveCredentials(clientId.trim(), clientSecret.trim());
+      message.success('연결에 성공했습니다. 새 설정을 적용하기 위해 앱을 재시작합니다...');
+      setClientId('');
+      setClientSecret('');
+      // 전략엔진/시세 WS 클라이언트가 새 자격증명으로 깨끗하게 다시 초기화되도록 앱을 재시작한다.
+      setTimeout(() => api.relaunchApp(), 1200);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleTestApi = async () => {
     setTestingApi(true);
@@ -63,19 +91,70 @@ export default function SettingsPage() {
         <title>설정 - 토스 트레이더</title>
       </Head>
 
-      <Card title="Open API 연결" style={{ marginBottom: 16 }}>
-        <Paragraph type="secondary">
-          현재 <code>client_id</code>/<code>client_secret</code>는 프로젝트 루트의 <code>.env</code> 파일에서
-          읽습니다. 앱 화면에서 직접 등록/암호화 저장하는 기능은 아직 제공되지 않습니다 — 값을 바꾼 뒤에는
-          앱을 재시작하세요.
-        </Paragraph>
-        <Space>
-          <Button onClick={handleTestApi} loading={testingApi}>
-            API 연결 테스트
+      <Card title="Toss Open API 연결" style={{ marginBottom: 16 }}>
+        {configured === false && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="warning"
+            showIcon
+            title="아직 Open API 연결이 설정되지 않았습니다"
+            description="토스증권 WTS에서 발급받은 client_id/client_secret을 입력하고 연결 테스트를 통과해야 다른 탭을 사용할 수 있습니다."
+          />
+        )}
+        {configured === true && (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="success"
+            showIcon
+            title="Toss Open API 연결이 설정되어 있습니다"
+            description="값을 변경하려면 아래에 새 client_id/client_secret을 입력하고 저장하세요."
+          />
+        )}
+
+        <Space orientation="vertical" style={{ width: '100%', maxWidth: 420 }}>
+          <div>
+            <Text strong>Client ID</Text>
+            <Input.Password
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder={configured ? '변경하려면 새 값을 입력하세요' : 'client_id 입력'}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <Text strong>Client Secret</Text>
+            <Input.Password
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder={configured ? '변경하려면 새 값을 입력하세요' : 'client_secret 입력'}
+              autoComplete="off"
+            />
+          </div>
+          <Button
+            type="primary"
+            onClick={handleSaveCredentials}
+            loading={saving}
+            disabled={!clientId.trim() || !clientSecret.trim()}
+          >
+            저장 및 연결 테스트
           </Button>
-          {apiStatus === 'ok' && <Text type="success">정상</Text>}
         </Space>
-        {apiError && <Alert style={{ marginTop: 12 }} type="error" showIcon message={apiError} />}
+        {saveError && <Alert style={{ marginTop: 12 }} type="error" showIcon title={saveError} />}
+
+        {configured === true && (
+          <>
+            <Paragraph type="secondary" style={{ marginTop: 24, marginBottom: 8 }}>
+              현재 저장된 값으로 연결이 살아있는지 다시 확인합니다.
+            </Paragraph>
+            <Space>
+              <Button onClick={handleTestApi} loading={testingApi}>
+                저장된 연결 테스트
+              </Button>
+              {apiStatus === 'ok' && <Text type="success">정상</Text>}
+            </Space>
+            {apiError && <Alert style={{ marginTop: 12 }} type="error" showIcon title={apiError} />}
+          </>
+        )}
       </Card>
 
       <Card title="종목 캐시" style={{ marginBottom: 16 }}>

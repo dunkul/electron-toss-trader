@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { Database, TossExchange } from '../db/schema';
 import {
   createStrategy,
@@ -26,6 +26,8 @@ import {
 } from '../db/repositories/watchlist';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
+import { hasTossApiCredentials, saveTossApiCredentials } from '../toss-api/config';
+import { testTossCredentials } from '../toss-api/credentials-test';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
@@ -141,6 +143,21 @@ export function registerIpcHandlers(
   });
 
   handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));
+
+  handle(IPC_CHANNELS.SETTINGS_CREDENTIALS_STATUS, () => ({ configured: hasTossApiCredentials() }));
+
+  handle(IPC_CHANNELS.SETTINGS_SAVE_CREDENTIALS, async (_event, clientId: string, clientSecret: string) => {
+    await testTossCredentials(clientId, clientSecret);
+    await saveTossApiCredentials(db, clientId, clientSecret);
+  });
+
+  // 자격증명이 새로 저장되면 전략엔진/시세 WS 클라이언트를 깨끗하게 다시 초기화해야 하는데, 이
+  // 프로젝트는 아직 그 둘을 무중단으로 재시작하는 경로가 없다 — 앱을 통째로 재시작해 main.ts의
+  // 부팅 로직이 새 자격증명으로 처음부터 다시 돌게 한다.
+  ipcMain.on(IPC_CHANNELS.APP_RELAUNCH, () => {
+    app.relaunch();
+    app.exit();
+  });
 
   // 여러 창(대시보드/시세 화면/차트 팝업)이 각자 자기 몫의 구독을 선언하는데, wsClient.setSymbols는
   // full-replace라 그냥 그대로 넘기면 나중에 도착한 창의 선언이 앞서 도착한 다른 창의 구독을

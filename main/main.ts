@@ -10,7 +10,7 @@ import { StrategyEngine } from './engine/scheduler';
 import { IPC_CHANNELS } from './ipc/channels';
 import { registerIpcHandlers, type ChartWindowStock } from './ipc/register';
 import { logger } from './logger';
-import { hasTossApiCredentials } from './toss-api/config';
+import { hasTossApiCredentials, loadTossApiCredentials } from './toss-api/config';
 import { ensureStocksCached } from './toss-api/stock-cache';
 import { TossMarketWsClient } from './toss-api/ws-client';
 
@@ -86,6 +86,7 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
   await app.whenReady();
 
   const db = getDb();
+  await loadTossApiCredentials(db);
 
   if (hasTossApiCredentials()) {
     strategyEngine = new StrategyEngine(db);

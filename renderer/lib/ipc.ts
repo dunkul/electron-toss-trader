@@ -53,8 +53,11 @@ const CHANNELS = {
   WATCHLIST_GROUP_RENAME: 'watchlist-groups:rename',
   WATCHLIST_GROUP_DELETE: 'watchlist-groups:delete',
   RANKING_LIST: 'ranking:list',
+  SETTINGS_CREDENTIALS_STATUS: 'settings:credentialsStatus',
+  SETTINGS_SAVE_CREDENTIALS: 'settings:saveCredentials',
   MARKET_SUBSCRIBE: 'market:subscribe',
   WINDOW_OPEN_CHART: 'window:openChart',
+  APP_RELAUNCH: 'app:relaunch',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
@@ -63,6 +66,10 @@ const CHANNELS = {
 export interface StocksStatus {
   count: number;
   lastSyncedAt: string | null;
+}
+
+export interface CredentialsStatus {
+  configured: boolean;
 }
 
 export type {
@@ -146,9 +153,15 @@ export const api = {
 
   testNotification: () => window.ipc.invoke<void>(CHANNELS.NOTIFICATIONS_TEST),
 
+  getCredentialsStatus: () => window.ipc.invoke<CredentialsStatus>(CHANNELS.SETTINGS_CREDENTIALS_STATUS),
+  saveCredentials: (clientId: string, clientSecret: string) =>
+    window.ipc.invoke<void>(CHANNELS.SETTINGS_SAVE_CREDENTIALS, clientId, clientSecret),
+
   subscribeMarket: (symbols: WsSymbolRef[]) => window.ipc.send(CHANNELS.MARKET_SUBSCRIBE, symbols),
 
   openChartWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_CHART, stock),
+
+  relaunchApp: () => window.ipc.send(CHANNELS.APP_RELAUNCH),
 };
 
 export type { ChartWindowStock };

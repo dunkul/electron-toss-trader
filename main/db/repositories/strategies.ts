@@ -23,6 +23,25 @@ export interface UpdateStrategyInput {
   notifySound?: boolean;
 }
 
+// IPC 경계를 넘어오는 값은 TypeScript 타입이 지워진 채로 도착하고, market/strategy_type 컬럼에는
+// DB CHECK 제약도 없어서 잘못된 값이 그대로 저장될 수 있다 — 여기서 한 번 걸러낸다.
+const VALID_MARKETS = { KR: true, US: true } satisfies Record<Market, true>;
+const VALID_STRATEGY_TYPES = {
+  MA_CROSS: true,
+  RSI: true,
+  PRICE_TARGET: true,
+  GRID: true,
+} satisfies Record<StrategyType, true>;
+
+function assertValidStrategyFields(fields: { market?: Market; strategyType?: StrategyType }): void {
+  if (fields.market !== undefined && !(fields.market in VALID_MARKETS)) {
+    throw new Error(`Invalid strategy market: ${fields.market}`);
+  }
+  if (fields.strategyType !== undefined && !(fields.strategyType in VALID_STRATEGY_TYPES)) {
+    throw new Error(`Invalid strategy type: ${fields.strategyType}`);
+  }
+}
+
 export async function listStrategies(db: Kysely<Database>): Promise<StrategyRow[]> {
   return db.selectFrom('strategies').selectAll().orderBy('created_at', 'desc').execute();
 }
@@ -36,6 +55,7 @@ export async function getStrategy(db: Kysely<Database>, id: number): Promise<Str
 }
 
 export async function createStrategy(db: Kysely<Database>, input: CreateStrategyInput): Promise<StrategyRow> {
+  assertValidStrategyFields({ market: input.market, strategyType: input.strategyType });
   return db
     .insertInto('strategies')
     .values({
@@ -57,6 +77,7 @@ export async function updateStrategy(
   id: number,
   input: UpdateStrategyInput,
 ): Promise<StrategyRow | undefined> {
+  assertValidStrategyFields({ market: input.market, strategyType: input.strategyType });
   const current = await getStrategy(db, id);
   if (!current) return undefined;
 

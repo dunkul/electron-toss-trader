@@ -4,7 +4,7 @@ import path from 'path';
 import { app, Menu } from 'electron';
 import serve from 'electron-serve';
 import { createWindow } from './helpers/create-window';
-import { getDb } from './db/connection';
+import { closeDb, getDb } from './db/connection';
 import { StrategyEngine } from './engine/scheduler';
 import { registerIpcHandlers } from './ipc/register';
 import { logger } from './logger';
@@ -18,14 +18,17 @@ if (isProd) {
   serve({ directory: 'app' });
 }
 
+let wsClient: TossMarketWsClient | undefined;
+let strategyEngine: StrategyEngine | undefined;
+
 (async () => {
   await app.whenReady();
 
   const db = getDb();
 
-  let wsClient: TossMarketWsClient | undefined;
   if (hasTossApiCredentials()) {
-    new StrategyEngine(db).start();
+    strategyEngine = new StrategyEngine(db);
+    strategyEngine.start();
     wsClient = new TossMarketWsClient(db);
     wsClient.start().catch((err: unknown) => logger.error({ err }, 'market ws client failed to start'));
     ensureStocksCached(db).catch((err: unknown) => logger.error({ err }, 'stock master sync failed'));
@@ -67,4 +70,12 @@ if (isProd) {
 
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+// 전략 엔진 타이머와 WS 연결을 정리하고 DB 핸들을 닫은 뒤 종료한다 — 없어도 프로세스 종료 시
+// OS가 다 회수하긴 하지만, WS는 정상 종료 프레임 없이 그냥 끊기고 타이머는 clear 없이 죽는다.
+app.on('before-quit', () => {
+  strategyEngine?.stop();
+  wsClient?.stop();
+  closeDb().catch((err: unknown) => logger.error({ err }, 'failed to close db on quit'));
 });

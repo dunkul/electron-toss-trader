@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely';
-import { BrowserWindow, ipcMain } from 'electron';
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import type { Database } from '../db/schema';
 import {
   createStrategy,
@@ -38,98 +38,107 @@ import { IPC_CHANNELS } from './channels';
 // 초당 20회 안팎). 버리지 않고 최신값만 유지하므로 화면에 표시되는 값이 밀리지는 않는다.
 const TICK_FLUSH_INTERVAL_MS = 200;
 
-export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketWsClient): void {
-  ipcMain.handle(IPC_CHANNELS.ACCOUNTS_LIST, async () => {
+// ipcMain.handle을 감싸서 실패를 항상 로그로 남긴다 — 그냥 ipcMain.handle을 쓰면 던져진
+// 에러가 렌더러로는 전달되지만(그건 유지), main 프로세스 쪽(pino/system_logs)에는 아무 흔적도
+// 안 남아서 DB/API 실패를 나중에 추적할 수 없다. 핸들러마다 try/catch를 반복하지 않도록
+// 여기 한 곳에서 처리한다.
+function handle<Args extends unknown[], R>(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: Args) => R | Promise<R>,
+): void {
+  ipcMain.handle(channel, async (event, ...args: Args) => {
     try {
-      return await fetchAndCacheAccounts(db);
+      return await handler(event, ...args);
     } catch (err) {
-      logger.error({ err }, 'accounts:list failed');
+      logger.error({ err, channel }, 'ipc handler failed');
       throw err;
     }
   });
+}
 
-  ipcMain.handle(IPC_CHANNELS.ACCOUNTS_HOLDINGS, async (_event, accountSeq: string) =>
-    getHoldings(db, accountSeq),
-  );
+export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketWsClient): void {
+  handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_LIST, () => listStrategies(db));
+  handle(IPC_CHANNELS.ACCOUNTS_HOLDINGS, (_event, accountSeq: string) => getHoldings(db, accountSeq));
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_CREATE, (_event, input: CreateStrategyInput) =>
+  handle(IPC_CHANNELS.STRATEGY_LIST, () => listStrategies(db));
+
+  handle(IPC_CHANNELS.STRATEGY_CREATE, (_event, input: CreateStrategyInput) =>
     createStrategy(db, input),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_UPDATE, (_event, id: number, input: UpdateStrategyInput) =>
+  handle(IPC_CHANNELS.STRATEGY_UPDATE, (_event, id: number, input: UpdateStrategyInput) =>
     updateStrategy(db, id, input),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_TOGGLE, (_event, id: number, isActive: boolean) =>
+  handle(IPC_CHANNELS.STRATEGY_TOGGLE, (_event, id: number, isActive: boolean) =>
     toggleStrategy(db, id, isActive),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STRATEGY_DELETE, async (_event, id: number) => {
+  handle(IPC_CHANNELS.STRATEGY_DELETE, async (_event, id: number) => {
     await deleteStrategy(db, id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.SIGNALS_LIST, (_event, limit?: number) => listRecentSignals(db, limit));
+  handle(IPC_CHANNELS.SIGNALS_LIST, (_event, limit?: number) => listRecentSignals(db, limit));
 
-  ipcMain.handle(IPC_CHANNELS.LOGS_LIST, (_event, limit?: number) => listRecentLogs(db, limit));
+  handle(IPC_CHANNELS.LOGS_LIST, (_event, limit?: number) => listRecentLogs(db, limit));
 
-  ipcMain.handle(IPC_CHANNELS.STOCKS_SEARCH, (_event, query: string, limit?: number) =>
+  handle(IPC_CHANNELS.STOCKS_SEARCH, (_event, query: string, limit?: number) =>
     searchStocks(db, query, limit),
   );
 
-  ipcMain.handle(IPC_CHANNELS.STOCKS_STATUS, async () => {
+  handle(IPC_CHANNELS.STOCKS_STATUS, async () => {
     const [count, lastSyncedAt] = await Promise.all([countStocks(db), getLastStocksSyncedAt(db)]);
     return { count, lastSyncedAt };
   });
 
-  ipcMain.handle(IPC_CHANNELS.STOCKS_REFRESH, async () => {
+  handle(IPC_CHANNELS.STOCKS_REFRESH, async () => {
     await ensureStocksCached(db, true);
     const [count, lastSyncedAt] = await Promise.all([countStocks(db), getLastStocksSyncedAt(db)]);
     return { count, lastSyncedAt };
   });
 
-  ipcMain.handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) =>
+  handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) =>
     getStocksBySymbols(db, symbols),
   );
 
-  ipcMain.handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
+  handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
 
-  ipcMain.handle(
+  handle(
     IPC_CHANNELS.MARKET_CANDLES,
     (_event, params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
       getCandles(db, params),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
+  handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) =>
+  handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) =>
     addToWatchlist(db, input),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REMOVE, async (_event, groupId: number, symbol: string) => {
+  handle(IPC_CHANNELS.WATCHLIST_REMOVE, async (_event, groupId: number, symbol: string) => {
     await removeFromWatchlist(db, groupId, symbol);
   });
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_REORDER, async (_event, groupId: number, symbols: string[]) => {
+  handle(IPC_CHANNELS.WATCHLIST_REORDER, async (_event, groupId: number, symbols: string[]) => {
     await reorderWatchlist(db, groupId, symbols);
   });
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
+  handle(IPC_CHANNELS.WATCHLIST_GROUPS_LIST, () => listWatchlistGroups(db));
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) =>
+  handle(IPC_CHANNELS.WATCHLIST_GROUP_CREATE, (_event, name: string) =>
     createWatchlistGroup(db, name),
   );
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, async (_event, id: number, name: string) => {
+  handle(IPC_CHANNELS.WATCHLIST_GROUP_RENAME, async (_event, id: number, name: string) => {
     await renameWatchlistGroup(db, id, name);
   });
 
-  ipcMain.handle(IPC_CHANNELS.WATCHLIST_GROUP_DELETE, async (_event, id: number) => {
+  handle(IPC_CHANNELS.WATCHLIST_GROUP_DELETE, async (_event, id: number) => {
     await deleteWatchlistGroup(db, id);
   });
 
-  ipcMain.handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));
+  handle(IPC_CHANNELS.RANKING_LIST, (_event, params: GetRankingsParams) => getRankings(db, params));
 
   ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (_event, symbols: WsSymbolRef[]) => {
     wsClient?.setSymbols(symbols);
@@ -161,10 +170,11 @@ export function registerIpcHandlers(db: Kysely<Database>, wsClient?: TossMarketW
     }, TICK_FLUSH_INTERVAL_MS);
   }
 
-  ipcMain.handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
+  handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {
     notifySignal({
       strategyName: '테스트 전략',
       symbol: 'TEST',
+      market: 'KR',
       signal: 'BUY',
       price: 0,
       reason: '알림 테스트',

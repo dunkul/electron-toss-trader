@@ -5,7 +5,18 @@ import { countStocks, replaceMarketStocks } from '../db/repositories/stocks';
 import { logger } from '../logger';
 import { getAllStocks } from './endpoints/stocks';
 
-const ALL_MARKETS: TossExchange[] = ['KOSPI', 'KOSDAQ', 'NYSE', 'NASDAQ', 'AMEX', 'KR_ETC', 'US_ETC'];
+// TossExchange에 마켓이 추가/삭제되면 이 객체가 컴파일 에러를 내서 여기도 같이 고치도록
+// 강제한다(배열 리터럴만 쓰면 타입이 바뀌어도 컴파일러가 잡아주지 못한다).
+const ALL_MARKETS_SET = {
+  KOSPI: true,
+  KOSDAQ: true,
+  NYSE: true,
+  NASDAQ: true,
+  AMEX: true,
+  KR_ETC: true,
+  US_ETC: true,
+} satisfies Record<TossExchange, true>;
+const ALL_MARKETS = Object.keys(ALL_MARKETS_SET) as TossExchange[];
 const SYNC_SETTING_KEY = 'stocks_last_synced_at';
 const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

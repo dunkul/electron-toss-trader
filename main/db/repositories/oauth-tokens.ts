@@ -15,9 +15,13 @@ export async function saveToken(
   db: Kysely<Database>,
   input: { accessToken: string; tokenType: string; expiresAt: string },
 ): Promise<void> {
-  await db.deleteFrom('oauth_tokens').execute();
-  await db
-    .insertInto('oauth_tokens')
-    .values({ access_token: input.accessToken, token_type: input.tokenType, expires_at: input.expiresAt })
-    .execute();
+  // delete+insert를 한 트랜잭션으로 묶는다 — 따로 실행하면 동시에 두 갱신이 겹칠 때
+  // 그 사이 잠깐 토큰이 비어있는 상태가 생길 수 있다.
+  await db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('oauth_tokens').execute();
+    await trx
+      .insertInto('oauth_tokens')
+      .values({ access_token: input.accessToken, token_type: input.tokenType, expires_at: input.expiresAt })
+      .execute();
+  });
 }

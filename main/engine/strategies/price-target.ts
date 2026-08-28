@@ -1,3 +1,4 @@
+import { formatPriceWithUnit } from '../../lib/currency';
 import type { StrategyEvalContext, StrategyEvalResult, StrategyModule } from '../types';
 
 export interface PriceTargetParams {
@@ -16,7 +17,7 @@ export const priceTargetStrategy: StrategyModule = {
     const directionLabel = params.direction === 'ABOVE' ? '이상으로 상승' : '이하로 하락';
     return {
       signal: params.direction === 'ABOVE' ? 'BUY' : 'SELL',
-      reason: `현재가 ${currentPrice.toLocaleString()}원이 목표가 ${params.targetPrice.toLocaleString()}원 ${directionLabel}`,
+      reason: `현재가 ${formatPriceWithUnit(currentPrice, strategy.market)}이 목표가 ${formatPriceWithUnit(params.targetPrice, strategy.market)} ${directionLabel}`,
     };
   },
 };

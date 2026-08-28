@@ -1,10 +1,12 @@
 import { BrowserWindow, Notification } from 'electron';
-import type { Signal } from '../db/schema';
+import type { Market, Signal } from '../db/schema';
 import { IPC_CHANNELS } from '../ipc/channels';
+import { formatPriceWithUnit } from '../lib/currency';
 
 export interface SignalNotification {
   strategyName: string;
   symbol: string;
+  market: Market;
   signal: Signal;
   price?: number;
   reason?: string;
@@ -13,7 +15,7 @@ export interface SignalNotification {
 export function notifySignal(payload: SignalNotification): void {
   const title = `[${payload.signal}] ${payload.strategyName}`;
   const bodyParts = [payload.symbol];
-  if (payload.price !== undefined) bodyParts.push(`${payload.price.toLocaleString()}원`);
+  if (payload.price !== undefined) bodyParts.push(formatPriceWithUnit(payload.price, payload.market));
   if (payload.reason) bodyParts.push(payload.reason);
 
   if (Notification.isSupported()) {

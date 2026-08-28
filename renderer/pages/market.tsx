@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import Head from 'next/head';
 import {
   App,
@@ -11,6 +11,8 @@ import {
   Modal,
   Popconfirm,
   Row,
+  Segmented,
+  Space,
   Spin,
   Table,
   Tabs,
@@ -21,16 +23,23 @@ import { DeleteOutlined, EditOutlined, HolderOutlined, PlusOutlined } from '@ant
 import {
   CandlestickSeries,
   HistogramSeries,
+  LineSeries,
   createChart,
+  type BarPrice,
+  type CandlestickData,
+  type HistogramData,
   type IChartApi,
   type ISeriesApi,
   type LogicalRange,
+  type MouseEventParams,
+  type Time,
   type UTCTimestamp,
 } from 'lightweight-charts';
 import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
-import { formatAmount, formatRate, profitColor, profitFlashColor } from '../lib/format';
+import { computeSMA, toChartTime, type ChartPoint } from '../lib/chart-indicators';
+import { KRW, formatAmount, formatRate, profitColor, profitFlashColor } from '../lib/format';
 import { profitColors } from '../lib/theme';
 import { useStockSearch } from '../hooks/useStockSearch';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
@@ -38,6 +47,7 @@ import { api, onMarketTick } from '../lib/ipc';
 import type {
   AccountSummary,
   Candle,
+  CandleInterval,
   HoldingsSummary,
   PriceQuote,
   StockRow,
@@ -50,12 +60,32 @@ const HOLDINGS_TAB_KEY = 'holdings';
 
 const CANDLE_PAGE_SIZE = 200; // Toss API의 /candles는 한 번 요청에 최대 200개까지만 허용한다.
 
+const MA_PERIODS = [5, 20, 60, 120] as const;
+const MA_COLORS: Record<(typeof MA_PERIODS)[number], string> = {
+  5: '#2e7d32', // 녹색
+  20: '#f2994a', // 주황
+  60: '#c0392b', // 적갈색
+  120: '#8e44ad', // 보라
+};
+
+const VOLUME_MA_PERIOD = 20;
+const VOLUME_MA_COLOR = '#2f80ed';
+
 const { Text } = Typography;
 
 interface SelectedStock {
   symbol: string;
   name: string;
   market: TossExchange;
+}
+
+interface LegendOhlc {
+  time: UTCTimestamp;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
 }
 
 // 다른 탭(관심종목 그룹)과 같은 표 형식으로 보유종목을 보여주기 위한 행 — 마켓은 로컬
@@ -81,6 +111,10 @@ export default function MarketPage() {
   const [watchlistBusy, setWatchlistBusy] = useState(false);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [candleInterval, setCandleInterval] = useState<CandleInterval>('1d');
+  const [visibleMaPeriods, setVisibleMaPeriods] = useState<Set<number>>(new Set(MA_PERIODS));
+  const [hoveredOhlc, setHoveredOhlc] = useState<LegendOhlc | null>(null);
+  const [liveTodayOhlc, setLiveTodayOhlc] = useState<LegendOhlc | null>(null);
 
   // 관심종목 탭(그룹). "내 보유종목"은 DB에 저장되지 않는 고정 탭이라 groups에는 포함되지 않는다.
   const [groups, setGroups] = useState<WatchlistGroupRow[]>([]);
@@ -110,8 +144,12 @@ export default function MarketPage() {
   const chartContainerRef = useRef<HTMLDivElement | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const volumeMaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const maSeriesRefs = useRef<Record<number, ISeriesApi<'Line'>>>({});
   const chartApiRef = useRef<IChartApi | null>(null);
   const activeSymbolRef = useRef<string | null>(null);
+  // 실시간 틱 리스너는 마운트 시 한 번만 등록되므로, 현재 봉 단위(일봉/1분봉)는 이 ref로 참조한다.
+  const candleIntervalRef = useRef<CandleInterval>('1d');
   // 차트에는 안 쓰이는 화면 상태가 아니라 렌더링용 원본 데이터라 ref로 보관한다(최신순/내림차순 그대로).
   // 과거 페이지를 이어붙일 때도 그냥 뒤에 concat하면 되고, 차트에 넣기 직전에만 오름차순으로 뒤집는다.
   const candlesRef = useRef<Candle[]>([]);
@@ -247,6 +285,10 @@ export default function MarketPage() {
   }, []);
 
   useEffect(() => {
+    candleIntervalRef.current = candleInterval;
+  }, [candleInterval]);
+
+  useEffect(() => {
     return onMarketTick((tick) => {
       const quote: PriceQuote = {
         symbol: tick.symbol,
@@ -260,29 +302,73 @@ export default function MarketPage() {
       if (selectedSymbolRef.current === tick.symbol) {
         setPrice(quote);
 
-        // 차트는 다시 그리지 않고, 오늘(마지막) 봉의 고가/저가/종가/거래량만 실시간으로 갱신한다.
-        const todayCandle = candlesRef.current[0];
-        if (todayCandle) {
+        const currentCandle = candlesRef.current[0];
+        if (currentCandle) {
           const lastPrice = Number(tick.lastPrice);
-          if (lastPrice > Number(todayCandle.highPrice)) todayCandle.highPrice = tick.lastPrice;
-          if (lastPrice < Number(todayCandle.lowPrice)) todayCandle.lowPrice = tick.lastPrice;
-          todayCandle.closePrice = tick.lastPrice;
-          // tick.volume은 이 flush 주기 동안의 체결량 합(register.ts가 합산해서 보냄) —
-          // 당일 누적 거래량이 아니라 "그만큼 늘었다"이므로 기존 값에 더한다.
-          todayCandle.volume = String(Number(todayCandle.volume) + Number(tick.volume));
-          const todayTime = Math.floor(new Date(todayCandle.timestamp).getTime() / 1000) as UTCTimestamp;
+          // 1분봉일 때는 틱 시각이 맨 앞 봉의 분(minute)을 벗어나면 새 봉을 하나 추가한다
+          // (일봉은 "오늘 봉"이 세션 내내 하나로 유지된다고 보고 계속 그 봉만 갱신한다).
+          const isNewMinuteBar =
+            candleIntervalRef.current === '1m' &&
+            Math.floor(new Date(tick.timestamp).getTime() / 60000) !==
+              Math.floor(new Date(currentCandle.timestamp).getTime() / 60000);
+
+          let candle: Candle;
+          if (isNewMinuteBar) {
+            const barStartMs = Math.floor(new Date(tick.timestamp).getTime() / 60000) * 60000;
+            candle = {
+              timestamp: new Date(barStartMs).toISOString(),
+              openPrice: tick.lastPrice,
+              highPrice: tick.lastPrice,
+              lowPrice: tick.lastPrice,
+              closePrice: tick.lastPrice,
+              volume: tick.volume,
+              currency: tick.currency,
+            };
+            candlesRef.current = [candle, ...candlesRef.current];
+          } else {
+            candle = currentCandle;
+            if (lastPrice > Number(candle.highPrice)) candle.highPrice = tick.lastPrice;
+            if (lastPrice < Number(candle.lowPrice)) candle.lowPrice = tick.lastPrice;
+            candle.closePrice = tick.lastPrice;
+            // tick.volume은 이 flush 주기 동안의 체결량 합(register.ts가 합산해서 보냄) —
+            // 누적 거래량이 아니라 "그만큼 늘었다"이므로 기존 값에 더한다.
+            candle.volume = String(Number(candle.volume) + Number(tick.volume));
+          }
+
+          const barTime = toChartTime(candle.timestamp);
           seriesRef.current?.update({
-            time: todayTime,
-            open: Number(todayCandle.openPrice),
-            high: Number(todayCandle.highPrice),
-            low: Number(todayCandle.lowPrice),
-            close: lastPrice,
+            time: barTime,
+            open: Number(candle.openPrice),
+            high: Number(candle.highPrice),
+            low: Number(candle.lowPrice),
+            close: Number(candle.closePrice),
           });
           volumeSeriesRef.current?.update({
-            time: todayTime,
-            value: Number(todayCandle.volume),
-            color: profitColor(lastPrice - Number(todayCandle.openPrice)),
+            time: barTime,
+            value: Number(candle.volume),
+            color: profitColor(Number(candle.closePrice) - Number(candle.openPrice)),
           });
+          setLiveTodayOhlc({
+            time: barTime,
+            open: Number(candle.openPrice),
+            high: Number(candle.highPrice),
+            low: Number(candle.lowPrice),
+            close: Number(candle.closePrice),
+            volume: Number(candle.volume),
+          });
+          MA_PERIODS.forEach((period) => {
+            if (candlesRef.current.length < period) return; // 로드된 봉이 기간보다 적으면 스킵
+            const sum = candlesRef.current
+              .slice(0, period)
+              .reduce((acc, c) => acc + Number(c.closePrice), 0);
+            maSeriesRefs.current[period]?.update({ time: barTime, value: sum / period });
+          });
+          if (candlesRef.current.length >= VOLUME_MA_PERIOD) {
+            const volumeSum = candlesRef.current
+              .slice(0, VOLUME_MA_PERIOD)
+              .reduce((acc, c) => acc + Number(c.volume), 0);
+            volumeMaSeriesRef.current?.update({ time: barTime, value: volumeSum / VOLUME_MA_PERIOD });
+          }
         }
       }
     });
@@ -321,8 +407,34 @@ export default function MarketPage() {
       1,
     );
     volumeSeriesRef.current = volumeSeries;
+
+    // 거래량 이동평균선(20) — 거래량과 같은 패인(paneIndex 1)에 겹쳐 그린다. 가격 MA와 달리
+    // 켜기/끄기 토글 없이 항상 표시한다.
+    volumeMaSeriesRef.current = chart.addSeries(
+      LineSeries,
+      {
+        color: VOLUME_MA_COLOR,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      },
+      1,
+    );
+
     chart.panes()[0]?.setStretchFactor(4);
     chart.panes()[1]?.setStretchFactor(1);
+
+    // 이동평균선 — 캔들과 같은 메인 패인(paneIndex 생략)에 겹쳐 그린다.
+    MA_PERIODS.forEach((period) => {
+      maSeriesRefs.current[period] = chart.addSeries(LineSeries, {
+        color: MA_COLORS[period],
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false, // 우측 축에 MA 마지막 값 라벨은 안 띄움(가격 라벨과 겹쳐 지저분해짐)
+        crosshairMarkerVisible: false,
+      });
+    });
 
     const handleResize = () => chart.applyOptions({ width: container.clientWidth });
     window.addEventListener('resize', handleResize);
@@ -337,9 +449,35 @@ export default function MarketPage() {
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
 
+    // 마우스가 캔들 위에 있는 동안 그 시점의 OHLC를 상단 레전드에 보여준다(P0-2).
+    const handleCrosshairMove = (param: MouseEventParams<Time>) => {
+      if (!param.time || !seriesRef.current) {
+        setHoveredOhlc(null);
+        return;
+      }
+      const bar = param.seriesData.get(seriesRef.current) as CandlestickData<Time> | undefined;
+      if (!bar) {
+        setHoveredOhlc(null);
+        return;
+      }
+      const volumeBar = volumeSeriesRef.current
+        ? (param.seriesData.get(volumeSeriesRef.current) as HistogramData<Time> | undefined)
+        : undefined;
+      setHoveredOhlc({
+        time: param.time as UTCTimestamp,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: volumeBar?.value ?? 0,
+      });
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
     };
   }, []);
@@ -357,9 +495,20 @@ export default function MarketPage() {
   // candlesDesc: API가 내려주는 그대로(최신순) 캔들 목록. 차트에 넣기 직전에만 뒤집는다.
   const renderChart = useCallback((candlesDesc: Candle[]) => {
     const ascendingCandles = [...candlesDesc].reverse();
+    // 국내(KRW)는 소수점 단위 거래가 없어 정수로, 그 외 통화는 기존처럼 센트 단위(소수점 둘째
+    // 자리)까지 표시한다. lightweight-charts 내장 'price' 포맷은 천 단위 콤마를 안 찍어주므로
+    // formatAmount(다른 화면의 가격 표시와 동일 규칙)로 커스텀 포맷터를 직접 지정한다.
+    const chartCurrency = ascendingCandles[0]?.currency ?? KRW;
+    seriesRef.current?.applyOptions({
+      priceFormat: {
+        type: 'custom',
+        formatter: (price: BarPrice) => formatAmount(price, chartCurrency),
+        minMove: chartCurrency === KRW ? 1 : 0.01,
+      },
+    });
     seriesRef.current?.setData(
       ascendingCandles.map((candle) => ({
-        time: Math.floor(new Date(candle.timestamp).getTime() / 1000) as UTCTimestamp,
+        time: toChartTime(candle.timestamp),
         open: Number(candle.openPrice),
         high: Number(candle.highPrice),
         low: Number(candle.lowPrice),
@@ -368,16 +517,44 @@ export default function MarketPage() {
     );
     volumeSeriesRef.current?.setData(
       ascendingCandles.map((candle) => ({
-        time: Math.floor(new Date(candle.timestamp).getTime() / 1000) as UTCTimestamp,
+        time: toChartTime(candle.timestamp),
         value: Number(candle.volume),
         color: profitColor(Number(candle.closePrice) - Number(candle.openPrice)),
       })),
+    );
+
+    const closePoints: ChartPoint[] = ascendingCandles.map((candle) => ({
+      time: toChartTime(candle.timestamp),
+      value: Number(candle.closePrice),
+    }));
+    MA_PERIODS.forEach((period) => {
+      maSeriesRefs.current[period]?.setData(computeSMA(closePoints, period));
+    });
+
+    const volumePoints: ChartPoint[] = ascendingCandles.map((candle) => ({
+      time: toChartTime(candle.timestamp),
+      value: Number(candle.volume),
+    }));
+    volumeMaSeriesRef.current?.setData(computeSMA(volumePoints, VOLUME_MA_PERIOD));
+
+    const lastCandle = ascendingCandles[ascendingCandles.length - 1];
+    setLiveTodayOhlc(
+      lastCandle
+        ? {
+            time: toChartTime(lastCandle.timestamp),
+            open: Number(lastCandle.openPrice),
+            high: Number(lastCandle.highPrice),
+            low: Number(lastCandle.lowPrice),
+            close: Number(lastCandle.closePrice),
+            volume: Number(lastCandle.volume),
+          }
+        : null,
     );
   }, []);
 
   // 기준가(전일종가)가 아직 없으면(referencePrices 로딩 전/실패) 색상 없이 가격만 표시한다.
   const renderPriceBlock = useCallback(
-    (quote: PriceQuote, alignRight = false, flash = true) => {
+    (quote: PriceQuote, alignRight = false, flash = true, lineHeight?: number) => {
       const lastPrice = Number(quote.lastPrice);
       const referencePrice = referencePrices[quote.symbol];
       const hasReference = referencePrice !== undefined && referencePrice !== 0;
@@ -398,6 +575,7 @@ export default function MarketPage() {
           color={color}
           align={alignRight ? 'right' : undefined}
           flashColor={flashColor}
+          lineHeight={lineHeight}
         />
       );
     },
@@ -405,7 +583,9 @@ export default function MarketPage() {
   );
 
   const loadSymbol = useCallback(
-    async (stock: SelectedStock) => {
+    // interval을 명시적으로 받을 수 있게 해둔다 — handleIntervalChange가 setCandleInterval
+    // 직후 바로 이 함수를 호출하면 state가 아직 리렌더 전이라 candleInterval이 옛 값일 수 있어서다.
+    async (stock: SelectedStock, interval: CandleInterval = candleInterval) => {
       setSelected(stock);
       setQuery('');
       setLoadingChart(true);
@@ -413,7 +593,7 @@ export default function MarketPage() {
       try {
         const [prices, page] = await Promise.all([
           api.getPrices([stock.symbol]),
-          api.getCandles({ symbol: stock.symbol, interval: '1d', count: CANDLE_PAGE_SIZE }),
+          api.getCandles({ symbol: stock.symbol, interval, count: CANDLE_PAGE_SIZE }),
         ]);
         if (activeSymbolRef.current !== stock.symbol) return;
         setPrice(prices[0] ?? null);
@@ -426,18 +606,19 @@ export default function MarketPage() {
         setLoadingChart(false);
       }
     },
-    [message, renderChart, setQuery],
+    [candleInterval, message, renderChart, setQuery],
   );
 
   const handleLoadMore = useCallback(async () => {
-    if (!selected || !nextBefore || loadingMoreRef.current) return;
+    // 1분봉은 API에 당일치만 있어 이전 페이지 요청이 항상 실패한다(토스트 스팸 방지) — 애초에 호출하지 않는다.
+    if (!selected || !nextBefore || loadingMoreRef.current || candleInterval === '1m') return;
     const symbol = selected.symbol;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       const page = await api.getCandles({
         symbol,
-        interval: '1d',
+        interval: candleInterval,
         count: CANDLE_PAGE_SIZE,
         before: nextBefore,
       });
@@ -451,11 +632,24 @@ export default function MarketPage() {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [selected, nextBefore, message, renderChart]);
+  }, [selected, nextBefore, candleInterval, message, renderChart]);
 
   useEffect(() => {
     handleLoadMoreRef.current = handleLoadMore;
   }, [handleLoadMore]);
+
+  // 봉 단위(일봉/1분봉) 전환 — loadSymbol이 candlesRef/nextBefore/차트를 전부 초기화해서
+  // 다시 그려주므로, 종목을 새로 고르는 것과 동일하게 재사용한다.
+  const handleIntervalChange = useCallback(
+    (interval: CandleInterval) => {
+      setCandleInterval(interval);
+      chartApiRef.current?.applyOptions({
+        timeScale: { timeVisible: interval === '1m', secondsVisible: false },
+      });
+      if (selected) loadSymbol(selected, interval);
+    },
+    [selected, loadSymbol],
+  );
 
   const handleSelectFromSearch = useCallback(
     async (stock: StockRow, groupId: number) => {
@@ -767,15 +961,30 @@ export default function MarketPage() {
           <Card
             title={
               selected ? (
-                <StockCell
-                  name={selected.name}
-                  symbol={selected.symbol}
-                  market={selected.market}
-                  lineHeight={1.1}
-                />
+                <Space align="center" size={24}>
+                  <StockCell
+                    name={selected.name}
+                    symbol={selected.symbol}
+                    market={selected.market}
+                    lineHeight={1.1}
+                  />
+                  {price && renderPriceBlock(price, false, false, 1.4)}
+                </Space>
               ) : undefined
             }
-            extra={selected && price ? renderPriceBlock(price, true, false) : undefined}
+            extra={
+              selected && (
+                <Segmented
+                  size="small"
+                  value={candleInterval}
+                  onChange={(value) => handleIntervalChange(value as CandleInterval)}
+                  options={[
+                    { label: '일봉', value: '1d' },
+                    { label: '1분봉', value: '1m' },
+                  ]}
+                />
+              )
+            }
             style={{ display: selected ? 'block' : 'none' }}
           >
             <div style={{ position: 'relative' }}>
@@ -790,6 +999,58 @@ export default function MarketPage() {
                   이전 데이터 불러오는 중...
                 </Text>
               )}
+              {(hoveredOhlc ?? liveTodayOhlc) && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: -10,
+                    left: 12,
+                    fontSize: 12,
+                    zIndex: 1,
+                    pointerEvents: 'none',
+                  }}
+                >
+                  {(() => {
+                    // 여기 등락은 그 캔들 자체의 종가-시가 기준(관심종목 목록의 전일종가 대비 등락과는 다른 기준).
+                    const o = hoveredOhlc ?? liveTodayOhlc!;
+                    const color = profitColor(o.close - o.open);
+                    return (
+                      <span style={{ color }}>
+                        시가 {o.open.toLocaleString()} 고가 {o.high.toLocaleString()} 저가{' '}
+                        {o.low.toLocaleString()} 종가 {o.close.toLocaleString()} 거래량{' '}
+                        {o.volume.toLocaleString()}
+                      </span>
+                    );
+                  })()}
+                </div>
+              )}
+              <Space style={{ position: 'absolute', top: 10, left: 12, zIndex: 1 }} size={8}>
+                {MA_PERIODS.map((period) => {
+                  const isVisible = visibleMaPeriods.has(period);
+                  return (
+                    <span
+                      key={period}
+                      onClick={() => {
+                        setVisibleMaPeriods((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(period)) next.delete(period);
+                          else next.add(period);
+                          return next;
+                        });
+                        maSeriesRefs.current[period]?.applyOptions({ visible: !isVisible });
+                      }}
+                      style={{
+                        color: MA_COLORS[period],
+                        fontSize: 12,
+                        cursor: 'pointer',
+                        opacity: isVisible ? 1 : 0.35,
+                      }}
+                    >
+                      {period}
+                    </span>
+                  );
+                })}
+              </Space>
             </div>
           </Card>
         </Col>
@@ -842,7 +1103,7 @@ interface WatchlistGroupPaneProps {
   watchlistPrices: Record<string, PriceQuote>;
   renderPriceBlock: (quote: PriceQuote, alignRight?: boolean) => ReactNode;
   watchlistBusy: boolean;
-  dragSymbolRef: MutableRefObject<string | null>;
+  dragSymbolRef: RefObject<string | null>;
   loadSymbol: (stock: SelectedStock) => void;
   handleSelectFromSearch: (stock: StockRow, groupId: number) => void;
   handleRemove: (groupId: number, symbol: string) => void;

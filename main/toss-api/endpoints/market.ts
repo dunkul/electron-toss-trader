@@ -24,7 +24,7 @@ export async function getPrices(db: Kysely<Database>, symbols: string[]): Promis
   return response.result ?? [];
 }
 
-export type CandleInterval = '1m' | '5m' | '1d';
+export type CandleInterval = '1m' | '1d';
 
 export interface Candle {
   timestamp: string;

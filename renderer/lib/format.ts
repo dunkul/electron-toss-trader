@@ -1,10 +1,15 @@
 import { profitColors, profitFlashColors } from './theme';
 
+// API의 currency 필드는 엄격한 유니온이 아니라 일반 string이라(주가/체결/캔들 등 여러 응답에서
+// 그대로 내려옴) 타입까지 좁히지는 않지만, 리터럴 오타를 막기 위해 상수로만 모아둔다.
+export const KRW = 'KRW';
+export const USD = 'USD';
+
 // 원화는 소수점이 의미 없어 정수로 반올림하고, 그 외 통화(달러 등)는 등락폭이 1 미만인 경우가
 // 흔해 소수점 둘째 자리까지 보여준다(안 그러면 "-0"처럼 정보가 사라져 보임).
 export function formatAmount(value: string | number, currency: string): string {
   const amount = Number(value);
-  if (currency === 'KRW') return Math.round(amount).toLocaleString();
+  if (currency === KRW) return Math.round(amount).toLocaleString();
   return amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
@@ -25,14 +30,14 @@ export function profitFlashColor(value: number): string {
 }
 
 export function currencySymbol(currency: string): string {
-  if (currency === 'KRW') return '₩';
-  if (currency === 'USD') return '$';
+  if (currency === KRW) return '₩';
+  if (currency === USD) return '$';
   return currency;
 }
 
 /** 거래대금 등 큰 금액을 조/억(KRW) 또는 K/M/B(그 외 통화) 단위로 축약. */
 export function formatCompactAmount(value: number, currency: string): string {
-  if (currency === 'KRW') {
+  if (currency === KRW) {
     const abs = Math.abs(value);
     if (abs >= 1_0000_0000_0000) return `${(value / 1_0000_0000_0000).toFixed(1)}조`;
     if (abs >= 1_0000_0000) return `${(value / 1_0000_0000).toFixed(1)}억`;

@@ -9,6 +9,7 @@ import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import { api, onStrategySignal } from '../lib/ipc';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
+import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type {
   AccountSummary,
@@ -217,10 +218,7 @@ export default function HomePage() {
               <Segmented
                 value={holdingsMarket}
                 onChange={(value) => setHoldingsMarket(value as Market)}
-                options={[
-                  { label: '국내', value: 'KR' },
-                  { label: '해외', value: 'US' },
-                ]}
+                options={MARKET_OPTIONS}
                 style={{ marginBottom: 12, flex: 'none', alignSelf: 'flex-start' }}
               />
               <div ref={holdingsTableWrapRef} style={{ flex: 1, minHeight: 0 }}>

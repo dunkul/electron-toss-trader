@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   App,
   AutoComplete,
@@ -32,6 +32,9 @@ import type {
 } from '../lib/ipc';
 
 const HOLDINGS_TAB_KEY = 'holdings';
+
+// 그룹에 종목이 하나도 없을 때 매 렌더마다 새 배열 리터럴을 만들지 않기 위한 고정 참조.
+const EMPTY_ROWS: WatchlistRow[] = [];
 
 const { Text } = Typography;
 
@@ -85,6 +88,18 @@ export default function WatchlistPanel() {
         ? String(groups[0].id)
         : HOLDINGS_TAB_KEY;
 
+  // 그룹별로 미리 나눠둔다 — watchlist가 안 바뀌었으면(예: 실시간 틱으로 인한 리렌더) 그룹별
+  // rows 배열이 참조 그대로 유지되어, 아래 WatchlistGroupPane의 React.memo 비교가 먹힌다.
+  const watchlistByGroup = useMemo(() => {
+    const map = new Map<number, WatchlistRow[]>();
+    for (const row of watchlist) {
+      const rows = map.get(row.group_id);
+      if (rows) rows.push(row);
+      else map.set(row.group_id, [row]);
+    }
+    return map;
+  }, [watchlist]);
+
   // 실시간 틱 리스너는 마운트 시 한 번만 등록되므로, 관심종목/보유종목 심볼 목록은 이 ref를
   // 통해 항상 최신 상태로 참조해야 한다(그렇지 않으면 최초 등록 시점의 stale 값을 계속 참조).
   const watchlistSymbolsRef = useRef<Set<string>>(new Set());
@@ -121,15 +136,21 @@ export default function WatchlistPanel() {
         setWatchlist(rows);
         mergePricesAndReferences(rows.map((row) => row.symbol));
       })
-      .catch(() => setWatchlist([]));
-  }, [mergePricesAndReferences]);
+      .catch(() => {
+        setWatchlist([]);
+        message.error('관심종목을 불러오지 못했습니다.');
+      });
+  }, [mergePricesAndReferences, message]);
 
   const loadGroups = useCallback(() => {
     api
       .listWatchlistGroups()
       .then((rows) => setGroups(rows))
-      .catch(() => setGroups([]));
-  }, []);
+      .catch(() => {
+        setGroups([]);
+        message.error('관심종목 탭을 불러오지 못했습니다.');
+      });
+  }, [message]);
 
   const loadHoldings = useCallback(async () => {
     setHoldingsLoading(true);
@@ -157,10 +178,11 @@ export default function WatchlistPanel() {
       }
     } catch {
       setHoldingsSummary(null);
+      message.error('보유종목 정보를 불러오지 못했습니다.');
     } finally {
       setHoldingsLoading(false);
     }
-  }, [mergePricesAndReferences]);
+  }, [mergePricesAndReferences, message]);
 
   useEffect(() => {
     loadWatchlist();
@@ -203,6 +225,7 @@ export default function WatchlistPanel() {
   const handleSelectFromSearch = useCallback(
     async (stock: StockRow, groupId: number) => {
       select(stock);
+      setQuery('');
       try {
         await api.addToWatchlist({ groupId, symbol: stock.symbol, name: stock.name, market: stock.market });
         loadWatchlist();
@@ -210,7 +233,7 @@ export default function WatchlistPanel() {
         message.error('관심종목 저장에 실패했습니다.');
       }
     },
-    [select, loadWatchlist, message],
+    [select, setQuery, loadWatchlist, message],
   );
 
   const handleRemove = useCallback(
@@ -300,9 +323,12 @@ export default function WatchlistPanel() {
   const handleTabChange = useCallback(
     (key: string) => {
       setActiveTabKey(key);
+      // 검색창 텍스트/결과는 탭마다 별개다 — 안 지우면 새로 활성화된 탭에 이전 탭에서
+      // 검색하던 내용이 그대로(찰나) 보인다.
+      setQuery('');
       openFirstSymbolOfTab(key);
     },
-    [openFirstSymbolOfTab],
+    [openFirstSymbolOfTab, setQuery],
   );
 
   const submitAddGroup = useCallback(async () => {
@@ -474,7 +500,7 @@ export default function WatchlistPanel() {
                   query={query}
                   setQuery={setQuery}
                   options={options}
-                  rows={watchlist.filter((row) => row.group_id === group.id)}
+                  rows={watchlistByGroup.get(group.id) ?? EMPTY_ROWS}
                   watchlistPrices={watchlistPrices}
                   referencePrices={referencePrices}
                   watchlistBusy={watchlistBusy}
@@ -544,10 +570,32 @@ interface WatchlistGroupPaneProps {
   reorderGroup: (groupId: number, draggedSymbol: string, targetSymbol: string) => void;
 }
 
+// 실시간 틱마다 watchlistPrices/referencePrices가 새 객체로 바뀌어(WatchlistPanel 전체가
+// 리렌더) 이 컴포넌트도 매번 리렌더된다 — antd Tabs가 비활성 탭도 계속 마운트해두기 때문에
+// 관심 없는 탭까지 매 틱 리렌더되는 걸 막기 위해, 이 그룹 소속 종목의 시세가 실제로 바뀐
+// 경우에만 리렌더하도록 React.memo에 커스텀 비교 함수를 준다.
+function arePropsEqual(prev: WatchlistGroupPaneProps, next: WatchlistGroupPaneProps): boolean {
+  if (
+    prev.group !== next.group ||
+    prev.isActive !== next.isActive ||
+    prev.query !== next.query ||
+    prev.options !== next.options ||
+    prev.rows !== next.rows ||
+    prev.watchlistBusy !== next.watchlistBusy
+  ) {
+    return false;
+  }
+  return prev.rows.every(
+    (row) =>
+      prev.watchlistPrices[row.symbol] === next.watchlistPrices[row.symbol] &&
+      prev.referencePrices[row.symbol] === next.referencePrices[row.symbol],
+  );
+}
+
 // 관심종목 그룹 탭 하나의 내용(검색창 + 종목 테이블). Tabs의 items는 WatchlistPanel 렌더링 중
 // groups.map()으로 만들어지므로, 그 콜백 안에서 useMeasuredHeight 같은 훅을 직접 호출할 수
 // 없다(훅 호출 규칙 위반) — 그래서 별도 컴포넌트로 분리해 각 탭 인스턴스가 자기 몫의 훅을 가진다.
-function WatchlistGroupPane({
+const WatchlistGroupPane = memo(function WatchlistGroupPane({
   group,
   isActive,
   query,
@@ -667,4 +715,4 @@ function WatchlistGroupPane({
       </div>
     </div>
   );
-}
+}, arePropsEqual);

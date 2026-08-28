@@ -17,15 +17,17 @@ import {
 } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
+import { MARKET_OPTIONS } from '../lib/options';
 import { useStockSearch } from '../hooks/useStockSearch';
-import type { Market, StrategyRow } from '../lib/ipc';
+import type { Market, PriceTargetParams, StrategyRow } from '../lib/ipc';
 
-interface PriceTargetFormValues {
+// direction/targetPrice는 main/engine/strategies/price-target.ts의 PriceTargetParams와 모양이
+// 반드시 일치해야 한다(그 모듈이 이 값을 그대로 JSON.parse해서 읽는다) — 타입을 그대로 가져와
+// 필드를 뽑아 쓰면, 그쪽 모양이 바뀔 때 여기도 컴파일 에러로 걸린다.
+interface PriceTargetFormValues extends PriceTargetParams {
   name: string;
   symbol: string;
   market: Market;
-  direction: 'ABOVE' | 'BELOW';
-  targetPrice: number;
   cooldownSec: number;
   notifyDesktop: boolean;
   notifySound: boolean;
@@ -70,12 +72,13 @@ export default function StrategiesPage() {
     const values = await form.validateFields();
     setSaving(true);
     try {
+      const params: PriceTargetParams = { direction: values.direction, targetPrice: values.targetPrice };
       await api.createStrategy({
         name: values.name,
         symbol: values.symbol,
         market: values.market,
         strategyType: 'PRICE_TARGET',
-        params: { direction: values.direction, targetPrice: values.targetPrice },
+        params,
         cooldownSec: values.cooldownSec,
         notifyDesktop: values.notifyDesktop,
         notifySound: values.notifySound,
@@ -91,14 +94,22 @@ export default function StrategiesPage() {
   };
 
   const handleToggle = async (strategy: StrategyRow, isActive: boolean) => {
-    await api.toggleStrategy(strategy.id, isActive);
-    loadStrategies();
+    try {
+      await api.toggleStrategy(strategy.id, isActive);
+      loadStrategies();
+    } catch {
+      message.error('감시 상태를 변경하지 못했습니다.');
+    }
   };
 
   const handleDelete = async (strategy: StrategyRow) => {
-    await api.deleteStrategy(strategy.id);
-    message.success(`"${strategy.name}" 전략을 삭제했습니다.`);
-    loadStrategies();
+    try {
+      await api.deleteStrategy(strategy.id);
+      message.success(`"${strategy.name}" 전략을 삭제했습니다.`);
+      loadStrategies();
+    } catch {
+      message.error('전략을 삭제하지 못했습니다.');
+    }
   };
 
   return (
@@ -194,12 +205,7 @@ export default function StrategiesPage() {
           </Form.Item>
 
           <Form.Item name="market" label="마켓" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'KR', label: '국내' },
-                { value: 'US', label: '해외' },
-              ]}
-            />
+            <Select options={MARKET_OPTIONS} />
           </Form.Item>
 
           <Form.Item name="direction" label="조건" rules={[{ required: true }]}>

@@ -24,7 +24,13 @@ export async function getPrices(db: Kysely<Database>, symbols: string[]): Promis
   return response.result ?? [];
 }
 
-export type CandleInterval = '1m' | '1d';
+// docs/openapi.json 기준 실제 API가 지원하는 값은 이 두 가지뿐이다(§3 CHART.md 참고).
+export const CANDLE_INTERVALS = {
+  ONE_MINUTE: '1m',
+  ONE_DAY: '1d',
+} as const;
+
+export type CandleInterval = (typeof CANDLE_INTERVALS)[keyof typeof CANDLE_INTERVALS];
 
 export interface Candle {
   timestamp: string;

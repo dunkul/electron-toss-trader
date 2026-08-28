@@ -1,11 +1,12 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
-import { Button, Card, Segmented, Select, Space, Table, Typography } from 'antd';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { App, Button, Card, Segmented, Select, Space, Table, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import StockCell from './StockCell';
 import PriceBlock from './PriceBlock';
 import { api } from '../lib/ipc';
 import { formatCompactAmount, formatRate, profitColor } from '../lib/format';
+import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type { Market, RankingDuration, RankingItem, RankingType } from '../lib/ipc';
 
@@ -48,24 +49,32 @@ export interface RankingCardProps {
 
 /** 대시보드용 주식 랭킹 카드. 시장/랭킹종류/기간을 고르면 상위 10개 종목을 보여준다. */
 const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function RankingCard({ onRefresh }, ref) {
+  const { message } = App.useApp();
   const [market, setMarket] = useState<Market>('KR');
   const [type, setType] = useState<RankingType>('MARKET_TRADING_AMOUNT');
   const [duration, setDuration] = useState<RankingDuration>('realtime');
   const [rankings, setRankings] = useState<RankingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [tableWrapRef, tableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
+  // market/type/duration을 빠르게 여러 번 바꾸면 먼저 보낸 요청이 나중에 도착할 수 있다 —
+  // 이 호출이 최신 요청인지 확인해서 오래된 응답이 새 필터 결과를 덮어쓰지 않게 한다.
+  const requestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setLoading(true);
     try {
       const result = await api.getRankings({ type, marketCountry: market, duration, count: 10 });
+      if (seq !== requestSeqRef.current) return;
       setRankings(result.rankings);
     } catch {
+      if (seq !== requestSeqRef.current) return;
       setRankings([]);
+      message.error('랭킹 정보를 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [market, type, duration]);
+  }, [market, type, duration, message]);
 
   useEffect(() => {
     load();
@@ -156,10 +165,7 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
           <Segmented
             value={market}
             onChange={(value) => setMarket(value as Market)}
-            options={[
-              { label: '국내', value: 'KR' },
-              { label: '해외', value: 'US' },
-            ]}
+            options={MARKET_OPTIONS}
           />
           <Select
             value={type}

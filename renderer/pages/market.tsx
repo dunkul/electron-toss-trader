@@ -22,7 +22,7 @@ export default function MarketPage() {
           <WatchlistPanel />
         </Col>
 
-        <Col span={16}>
+        <Col span={16} style={{ height: '100%' }}>
           {selected ? (
             <ChartCard stock={selected} />
           ) : (

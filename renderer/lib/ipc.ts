@@ -22,6 +22,7 @@ import type {
 } from '../../main/toss-api/endpoints/ranking';
 import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
+import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
 
 // main/ipc/channels.ts의 채널 이름과 반드시 일치해야 한다.
 // (renderer는 main 프로세스 코드를 직접 import하지 않는다 — 이 문자열들은 값이 아니라 타입만 main에서 가져온다)
@@ -86,6 +87,14 @@ export type {
 };
 export type { CreateStrategyInput, UpdateStrategyInput };
 export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
+export type { PriceTargetParams };
+
+// main/toss-api/endpoints/market.ts의 CANDLE_INTERVALS와 값이 반드시 일치해야 한다 — renderer는
+// main의 런타임 코드를 import할 수 없어(타입만 공유 가능) 값 자체는 여기 다시 선언한다.
+export const CANDLE_INTERVALS: Record<'ONE_MINUTE' | 'ONE_DAY', CandleInterval> = {
+  ONE_MINUTE: '1m',
+  ONE_DAY: '1d',
+};
 
 export const api = {
   listAccounts: () => window.ipc.invoke<AccountSummary[]>(CHANNELS.ACCOUNTS_LIST),

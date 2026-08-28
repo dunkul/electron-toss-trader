@@ -22,7 +22,8 @@ import { KRW, formatAmount, profitColor } from '../lib/format';
 import { profitColors } from '../lib/theme';
 import { fetchReferencePrices } from '../lib/market-data';
 import { useMarketSubscription } from '../hooks/useMarketSubscription';
-import { api, onMarketTick } from '../lib/ipc';
+import { useMeasuredHeight } from '../hooks/useMeasuredHeight';
+import { CANDLE_INTERVALS, api, onMarketTick } from '../lib/ipc';
 import type { Candle, CandleInterval, PriceQuote } from '../lib/ipc';
 import type { SelectedStock } from '../store/useSelectedStockStore';
 
@@ -60,13 +61,17 @@ interface ChartCardProps {
 // 위함이다. 실시간 구독은 useMarketSubscription으로 스스로 선언한다.
 export default function ChartCard({ stock }: ChartCardProps) {
   const { message } = App.useApp();
+  // 차트 영역(카드 본문)이 뷰포트 높이에 맞춰 늘었다 줄었다 하는 만큼 실측한 픽셀 높이를
+  // 차트 컨테이너에 그대로 넘긴다 — Spin 등 antd 내부 wrapper를 거치는 flex:1는 신뢰할 수
+  // 없어서, 이 wrapper div(포지션 relative, Spin 밖)를 직접 측정해 명시적으로 지정한다.
+  const [chartBodyRef, chartBodyHeight] = useMeasuredHeight<HTMLDivElement>();
 
   const [price, setPrice] = useState<PriceQuote | null>(null);
   const [referencePrice, setReferencePrice] = useState<number | undefined>(undefined);
   const [loadingChart, setLoadingChart] = useState(false);
   const [nextBefore, setNextBefore] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [candleInterval, setCandleInterval] = useState<CandleInterval>('1d');
+  const [candleInterval, setCandleInterval] = useState<CandleInterval>(CANDLE_INTERVALS.ONE_DAY);
   const [visibleMaPeriods, setVisibleMaPeriods] = useState<Set<number>>(new Set(MA_PERIODS));
   const [hoveredOhlc, setHoveredOhlc] = useState<LegendOhlc | null>(null);
   const [liveTodayOhlc, setLiveTodayOhlc] = useState<LegendOhlc | null>(null);
@@ -78,9 +83,15 @@ export default function ChartCard({ stock }: ChartCardProps) {
   const maSeriesRefs = useRef<Record<number, ISeriesApi<'Line'>>>({});
   const chartApiRef = useRef<IChartApi | null>(null);
   const activeSymbolRef = useRef<string | null>(null);
+  // 종목이 바뀌면 activeSymbolRef는 즉시 새 심볼을 가리키지만, candlesRef.current가 실제로 그
+  // 심볼의 데이터로 채워지는 건 getCandles 응답이 도착한 다음이다. 그 사이 새 심볼의 실시간
+  // 틱이 먼저 도착하면(이미 관심종목으로 구독 중이던 종목의 차트를 처음 여는 경우 등)
+  // candlesRef.current[0](아직 이전 심볼의 캔들)에 새 심볼의 체결가를 덮어쓸 수 있다 —
+  // candlesRef가 실제로 어느 심볼로 채워졌는지 이 ref로 추적해서 틱 핸들러가 가드한다.
+  const loadedSymbolRef = useRef<string | null>(null);
   // 실시간 틱 리스너는 마운트 시 한 번만 등록되므로, 현재 종목/봉 단위는 이 ref들로 참조한다.
   const stockSymbolRef = useRef(stock.symbol);
-  const candleIntervalRef = useRef<CandleInterval>('1d');
+  const candleIntervalRef = useRef<CandleInterval>(CANDLE_INTERVALS.ONE_DAY);
   // 차트에는 안 쓰이는 화면 상태가 아니라 렌더링용 원본 데이터라 ref로 보관한다(최신순/내림차순 그대로).
   // 과거 페이지를 이어붙일 때도 그냥 뒤에 concat하면 되고, 차트에 넣기 직전에만 오름차순으로 뒤집는다.
   const candlesRef = useRef<Candle[]>([]);
@@ -109,14 +120,23 @@ export default function ChartCard({ stock }: ChartCardProps) {
         timestamp: tick.timestamp,
       });
 
+      // candlesRef가 아직 이 심볼로 채워지지 않았으면(getCandles 응답 도착 전) 캔들 갱신은
+      // 건너뛴다 — 현재가 표시는 위에서 이미 최신 상태로 갱신했다.
+      if (loadedSymbolRef.current !== tick.symbol) return;
       const currentCandle = candlesRef.current[0];
       if (!currentCandle) return;
       const lastPrice = Number(tick.lastPrice);
-      // 1분봉일 때는 틱 시각이 맨 앞 봉의 분(minute)을 벗어나면 새 봉을 하나 추가한다
-      // (일봉은 "오늘 봉"이 세션 내내 하나로 유지된다고 보고 계속 그 봉만 갱신한다).
+      // 1분봉일 때는 틱 시각이 맨 앞 봉의 분(minute)보다 "이후"로 넘어가야 새 봉을 하나 추가한다
+      // (일봉은 "오늘 봉"이 세션 내내 하나로 유지된다고 보고 계속 그 봉만 갱신한다). 분 경계
+      // 부근에서 flush 배치 순서가 뒤바뀌어 맨 앞 봉보다 "이전" 분의 틱이 뒤늦게 도착할 수 있는데,
+      // 이때 단순히 "다르다(!==)"로 판단하면 과거 시각의 봉을 새로 만들어 앞에 꽂아버리고, 그
+      // update() 호출은 시간이 거꾸로 가 lightweight-charts가 "Cannot update oldest data"로
+      // 거부한다 — 이후 진짜 현재 분 틱들도 이 엉뚱한 봉을 기준으로 계속 "다르다"고 판단해 매번
+      // 같은 에러를 반복하다가, 실제 시계가 그 봉의 시각을 넘어서는 다음 분이 되어서야 정상화된다.
+      // 늦게 도착한 과거 분 틱은 새 봉을 만들지 않고 그냥 현재 봉 갱신(else 분기)으로 흡수한다.
       const isNewMinuteBar =
-        candleIntervalRef.current === '1m' &&
-        Math.floor(new Date(tick.timestamp).getTime() / 60000) !==
+        candleIntervalRef.current === CANDLE_INTERVALS.ONE_MINUTE &&
+        Math.floor(new Date(tick.timestamp).getTime() / 60000) >
           Math.floor(new Date(currentCandle.timestamp).getTime() / 60000);
 
       let candle: Candle;
@@ -143,6 +163,7 @@ export default function ChartCard({ stock }: ChartCardProps) {
       }
 
       const barTime = toChartTime(candle.timestamp);
+
       seriesRef.current?.update({
         time: barTime,
         open: Number(candle.openPrice),
@@ -150,11 +171,13 @@ export default function ChartCard({ stock }: ChartCardProps) {
         low: Number(candle.lowPrice),
         close: Number(candle.closePrice),
       });
+
       volumeSeriesRef.current?.update({
         time: barTime,
         value: Number(candle.volume),
         color: profitColor(Number(candle.closePrice) - Number(candle.openPrice)),
       });
+
       setLiveTodayOhlc({
         time: barTime,
         open: Number(candle.openPrice),
@@ -182,7 +205,9 @@ export default function ChartCard({ stock }: ChartCardProps) {
     if (!container) return;
 
     const chart = createChart(container, {
-      height: 460,
+      // 너비/높이를 우리가 직접 계산하는 대신 컨테이너 크기에 맞춰 차트가 스스로 관찰/조정하게
+      // 한다 — 카드가 뷰포트 높이에 맞춰 늘었다 줄었다 하는 다른 카드들과 같은 방식으로 동작한다.
+      autoSize: true,
       layout: { textColor: '#333' },
       grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
       // 기본 dateFormat('dd MMM \'yy')이 브라우저 로케일과 섞이면 "14 7월 26"처럼 순서가
@@ -239,13 +264,6 @@ export default function ChartCard({ stock }: ChartCardProps) {
       });
     });
 
-    // 컨테이너 폭이 바뀔 때마다(창 리사이즈뿐 아니라, 이 카드를 나중에 숨겨진 탭/모달 등에
-    // 넣었다가 다시 보여주는 경우에도) 자동으로 맞춘다.
-    const resizeObserver = new ResizeObserver(() => {
-      chart.applyOptions({ width: container.clientWidth });
-    });
-    resizeObserver.observe(container);
-
     // 차트를 왼쪽(과거 방향)으로 드래그해서 로딩된 데이터의 시작 지점 근처까지 가면
     // 자동으로 이전 페이지를 이어붙인다(무한 스크롤). 10봉 여유를 두고 미리 불러온다.
     const handleVisibleLogicalRangeChange = (range: LogicalRange | null) => {
@@ -281,7 +299,6 @@ export default function ChartCard({ stock }: ChartCardProps) {
     chart.subscribeCrosshairMove(handleCrosshairMove);
 
     return () => {
-      resizeObserver.disconnect();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(handleVisibleLogicalRangeChange);
       chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
@@ -355,6 +372,7 @@ export default function ChartCard({ stock }: ChartCardProps) {
         const page = await api.getCandles({ symbol, interval, count: CANDLE_PAGE_SIZE });
         if (activeSymbolRef.current !== symbol) return;
         candlesRef.current = page.candles;
+        loadedSymbolRef.current = symbol;
         setNextBefore(page.nextBefore);
         renderChart(page.candles);
       } catch {
@@ -370,22 +388,35 @@ export default function ChartCard({ stock }: ChartCardProps) {
   // state가 아니라 ref로 읽어서, 봉 단위 토글(handleIntervalChange)과 별개로 이 effect가
   // 인터벌 변경 때마다 또 도는 일이 없게 한다.
   useEffect(() => {
-    activeSymbolRef.current = stock.symbol;
+    const symbol = stock.symbol;
+    activeSymbolRef.current = symbol;
+    loadedSymbolRef.current = null;
     api
-      .getPrices([stock.symbol])
-      .then((prices) => setPrice(prices[0] ?? null))
-      .catch(() => setPrice(null));
-    fetchReferencePrices([stock.symbol]).then((refs) => setReferencePrice(refs[stock.symbol]));
+      .getPrices([symbol])
+      .then((prices) => {
+        // 빠르게 다른 종목으로 넘어간 뒤 이 응답이 늦게 도착하면(A→B→C), 지금 보고 있는
+        // 종목(symbol)이 아니라 이미 지난 요청이므로 반영하지 않는다.
+        if (activeSymbolRef.current !== symbol) return;
+        setPrice(prices[0] ?? null);
+      })
+      .catch(() => {
+        if (activeSymbolRef.current !== symbol) return;
+        setPrice(null);
+      });
+    fetchReferencePrices([symbol]).then((refs) => {
+      if (activeSymbolRef.current !== symbol) return;
+      setReferencePrice(refs[symbol]);
+    });
     // 종목이 바뀌는 순간 이전 종목의 커서를 들고 있으면, 그 사이 스크롤로 handleLoadMore가
     // 트리거될 때 새 종목에 옛 커서로 이전 페이지를 요청하는 버그가 생길 수 있어 먼저 비운다.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 종목 전환 시 즉시 리셋 필요
     setNextBefore(null);
-    loadCandles(stock.symbol, candleIntervalRef.current);
+    loadCandles(symbol, candleIntervalRef.current);
   }, [stock.symbol, stock.market, loadCandles]);
 
   const handleLoadMore = useCallback(async () => {
     // 1분봉은 API에 당일치만 있어 이전 페이지 요청이 항상 실패한다(토스트 스팸 방지) — 애초에 호출하지 않는다.
-    if (!nextBefore || loadingMoreRef.current || candleInterval === '1m') return;
+    if (!nextBefore || loadingMoreRef.current || candleInterval === CANDLE_INTERVALS.ONE_MINUTE) return;
     const symbol = stock.symbol;
     loadingMoreRef.current = true;
     setLoadingMore(true);
@@ -417,7 +448,7 @@ export default function ChartCard({ stock }: ChartCardProps) {
     (interval: CandleInterval) => {
       setCandleInterval(interval);
       chartApiRef.current?.applyOptions({
-        timeScale: { timeVisible: interval === '1m', secondsVisible: false },
+        timeScale: { timeVisible: interval === CANDLE_INTERVALS.ONE_MINUTE, secondsVisible: false },
       });
       setNextBefore(null);
       loadCandles(stock.symbol, interval);
@@ -427,6 +458,10 @@ export default function ChartCard({ stock }: ChartCardProps) {
 
   return (
     <Card
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{
+        body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
+      }}
       title={
         <Space align="center" size={24}>
           <StockCell name={stock.name} symbol={stock.symbol} market={stock.market} lineHeight={1.1} />
@@ -441,15 +476,15 @@ export default function ChartCard({ stock }: ChartCardProps) {
           value={candleInterval}
           onChange={(value) => handleIntervalChange(value as CandleInterval)}
           options={[
-            { label: '일봉', value: '1d' },
-            { label: '1분봉', value: '1m' },
+            { label: '일봉', value: CANDLE_INTERVALS.ONE_DAY },
+            { label: '1분봉', value: CANDLE_INTERVALS.ONE_MINUTE },
           ]}
         />
       }
     >
-      <div style={{ position: 'relative' }}>
+      <div ref={chartBodyRef} style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <Spin spinning={loadingChart}>
-          <div ref={chartContainerRef} style={{ width: '100%' }} />
+          <div ref={chartContainerRef} style={{ width: '100%', height: chartBodyHeight }} />
         </Spin>
         {loadingMore && (
           <Text type="secondary" style={{ position: 'absolute', top: 4, left: 8, pointerEvents: 'none' }}>

@@ -231,7 +231,13 @@ export default function ChartCard({ stock }: ChartCardProps) {
     // 4:1 비율로 나눠 토스증권 차트의 "거래량" 서브패널과 비슷한 높이가 되게 한다.
     const volumeSeries = chart.addSeries(
       HistogramSeries,
-      { priceFormat: { type: 'volume' }, priceScaleId: 'volume' },
+      {
+        priceFormat: {
+          type: 'custom',
+          formatter: (price: BarPrice) => formatAmount(price, KRW),
+          minMove: 1,
+        },
+      },
       1,
     );
     volumeSeriesRef.current = volumeSeries;

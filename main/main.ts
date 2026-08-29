@@ -16,6 +16,9 @@ import { TossMarketWsClient } from './toss-api/ws-client';
 
 const isProd = process.env.NODE_ENV === 'production';
 const devPort = process.argv[2];
+// 패키징된 빌드는 electron-builder가 resources/icon.ico를 exe에 이미 심어두므로 별도 지정이 필요
+// 없다. resources/ 디렉터리 자체가 배포 파일에 포함되지 않아 이 경로는 개발 모드에서만 존재한다.
+const devIconPath = !isProd ? path.join(import.meta.dirname, '../resources/icon.ico') : undefined;
 
 if (isProd) {
   serve({ directory: 'app' });
@@ -50,6 +53,7 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
     height: 700,
     show: false,
     backgroundColor: '#ffffff',
+    icon: devIconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.js'),
     },
@@ -111,6 +115,7 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
     height: 800,
     show: false,
     backgroundColor: '#ffffff',
+    icon: devIconPath,
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.js'),
     },

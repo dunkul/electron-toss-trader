@@ -9,6 +9,7 @@ export const API_GROUPS = {
   MARKET_DATA: 'MARKET_DATA',
   MARKET_DATA_CHART: 'MARKET_DATA_CHART',
   RANKING: 'RANKING',
+  STOCK_TRADING_TREND: 'STOCK_TRADING_TREND',
 } as const;
 
 export type ApiGroup = (typeof API_GROUPS)[keyof typeof API_GROUPS];
@@ -26,6 +27,9 @@ const RATE_LIMITS: Record<ApiGroup, number> = {
   // openapi.json 문서에 RANKING 그룹의 정확한 TPS가 명시돼 있지 않아, 무거운 집계 조회임을
   // 감안해 ACCOUNT보다는 여유롭고 STOCK_ALL보다는 빠듯한 값으로 보수적으로 잡는다.
   [API_GROUPS.RANKING]: 5,
+  // 투자자별 매매동향 등 종목별 수급 동향 조회 그룹. 문서에 정확한 TPS가 없어 같은 Stock Info
+  // 태그로 묶인 STOCK 그룹과 동일하게 보수적으로 잡는다.
+  [API_GROUPS.STOCK_TRADING_TREND]: 5,
 };
 
 interface Bucket {

@@ -20,6 +20,7 @@ import type {
   RankingResult,
   RankingType,
 } from '../../main/toss-api/endpoints/ranking';
+import type { InvestorTradingFigure, InvestorTradingRecord } from '../../main/toss-api/endpoints/stocks';
 import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
@@ -42,6 +43,7 @@ const CHANNELS = {
   STOCKS_STATUS: 'stocks:status',
   STOCKS_REFRESH: 'stocks:refresh',
   STOCKS_GET_BY_SYMBOLS: 'stocks:getBySymbols',
+  STOCKS_INVESTOR_TRADING: 'stocks:investorTrading',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
   WATCHLIST_LIST: 'watchlist:list',
@@ -57,10 +59,12 @@ const CHANNELS = {
   SETTINGS_SAVE_CREDENTIALS: 'settings:saveCredentials',
   MARKET_SUBSCRIBE: 'market:subscribe',
   WINDOW_OPEN_CHART: 'window:openChart',
+  WINDOW_OPEN_DAILY_PRICES: 'window:openDailyPrices',
   APP_RELAUNCH: 'app:relaunch',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
+  WINDOW_DAILY_PRICES_UPDATE_EVENT: 'window:dailyPricesUpdate',
 } as const;
 
 export interface StocksStatus {
@@ -98,6 +102,7 @@ export type {
 export type { CreateStrategyInput, UpdateStrategyInput };
 export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
 export type { PriceTargetParams };
+export type { InvestorTradingFigure, InvestorTradingRecord };
 
 // main/toss-api/endpoints/market.ts의 CANDLE_INTERVALS와 값이 반드시 일치해야 한다 — renderer는
 // main의 런타임 코드를 import할 수 없어(타입만 공유 가능) 값 자체는 여기 다시 선언한다.
@@ -129,6 +134,8 @@ export const api = {
   refreshStocks: () => window.ipc.invoke<StocksStatus>(CHANNELS.STOCKS_REFRESH),
   getStocksBySymbols: (symbols: string[]) =>
     window.ipc.invoke<StockRow[]>(CHANNELS.STOCKS_GET_BY_SYMBOLS, symbols),
+  getInvestorTrading: (symbol: string, params?: { count?: number; until?: string }) =>
+    window.ipc.invoke<InvestorTradingRecord[]>(CHANNELS.STOCKS_INVESTOR_TRADING, symbol, params),
 
   getPrices: (symbols: string[]) => window.ipc.invoke<PriceQuote[]>(CHANNELS.MARKET_PRICES, symbols),
   getCandles: (params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
@@ -160,6 +167,8 @@ export const api = {
   subscribeMarket: (symbols: WsSymbolRef[]) => window.ipc.send(CHANNELS.MARKET_SUBSCRIBE, symbols),
 
   openChartWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_CHART, stock),
+  openDailyPricesWindow: (stock: ChartWindowStock) =>
+    window.ipc.send(CHANNELS.WINDOW_OPEN_DAILY_PRICES, stock),
 
   relaunchApp: () => window.ipc.send(CHANNELS.APP_RELAUNCH),
 };
@@ -178,4 +187,10 @@ export function onMarketTick(callback: (tick: MarketTick) => void): () => void {
 // 이 이벤트로 같은 창의 표시 종목만 바꾼다.
 export function onChartWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
   return window.ipc.on<ChartWindowStock>(CHANNELS.WINDOW_CHART_UPDATE_EVENT, callback);
+}
+
+// 일별시세 팝업 창(daily-prices-window.tsx)이 이미 떠 있는 상태에서 다른 종목을 클릭하면, 새 창을
+// 여는 대신 이 이벤트로 같은 창의 표시 종목만 바꾼다.
+export function onDailyPricesWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
+  return window.ipc.on<ChartWindowStock>(CHANNELS.WINDOW_DAILY_PRICES_UPDATE_EVENT, callback);
 }

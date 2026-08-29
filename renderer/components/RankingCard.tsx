@@ -9,7 +9,7 @@ import { api } from '../lib/ipc';
 import { formatCompactAmount, formatRate, profitColor } from '../lib/format';
 import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
-import type { Market, RankingDuration, RankingItem, RankingType } from '../lib/ipc';
+import type { ChartWindowStock, Market, RankingDuration, RankingItem, RankingType } from '../lib/ipc';
 
 const { Text } = Typography;
 
@@ -88,24 +88,45 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     onRefresh?.();
   };
 
-  // 랭킹 API 응답에는 거래소 코드(KOSPI/NASDAQ 등)가 없어, 차트 창을 열려면 로컬 종목
-  // 캐시에서 먼저 조회해야 한다(WatchlistPanel의 보유종목 탭과 같은 방식).
+  // 랭킹 API 응답에는 거래소 코드(KOSPI/NASDAQ 등)가 없어, 팝업 창을 열려면 로컬 종목
+  // 캐시에서 먼저 조회해야 한다(WatchlistPanel의 보유종목 탭과 같은 방식). 차트/일별시세 등
+  // 팝업 종류에 상관없이 공통으로 쓴다.
+  const resolveChartWindowStock = async (record: RankingItem): Promise<ChartWindowStock | null> => {
+    const [stock] = await api.getStocksBySymbols([record.symbol]);
+    if (!stock) return null;
+    return { symbol: stock.symbol, name: record.name ?? stock.name, market: stock.market };
+  };
+
   const handleOpenChart = async (record: RankingItem) => {
     try {
-      const [stock] = await api.getStocksBySymbols([record.symbol]);
+      const stock = await resolveChartWindowStock(record);
       if (!stock) {
         message.error('종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
         return;
       }
-      api.openChartWindow({ symbol: stock.symbol, name: record.name ?? stock.name, market: stock.market });
+      api.openChartWindow(stock);
     } catch {
       message.error('차트 창을 여는 데 실패했습니다.');
     }
   };
 
-  // 우클릭 메뉴 항목. 지금은 차트 보기뿐이지만, 추후 일자별 리스트/호가창 등을 여기 추가하면 된다.
+  const handleOpenDailyPrices = async (record: RankingItem) => {
+    try {
+      const stock = await resolveChartWindowStock(record);
+      if (!stock) {
+        message.error('종목 캐시에 없는 종목이라 일별시세를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+        return;
+      }
+      api.openDailyPricesWindow(stock);
+    } catch {
+      message.error('일별시세 창을 여는 데 실패했습니다.');
+    }
+  };
+
+  // 우클릭 메뉴 항목. 추후 호가창 등을 여기 추가하면 된다.
   const getContextMenuItems = (record: RankingItem): MenuProps['items'] => [
     { key: 'chart', label: '차트 보기', onClick: () => handleOpenChart(record) },
+    { key: 'dailyPrices', label: '일별시세', onClick: () => handleOpenDailyPrices(record) },
   ];
 
   const handleTypeChange = (value: RankingType) => {

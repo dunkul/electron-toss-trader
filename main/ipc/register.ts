@@ -31,6 +31,7 @@ import { testTossCredentials } from '../toss-api/credentials-test';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
+import { getInvestorTrading } from '../toss-api/endpoints/stocks';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
 import type { MarketTick, TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
@@ -68,6 +69,7 @@ export function registerIpcHandlers(
   db: Kysely<Database>,
   wsClient?: TossMarketWsClient,
   openChartWindow?: (stock: ChartWindowStock) => void,
+  openDailyPricesWindow?: (stock: ChartWindowStock) => void,
 ): void {
   handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
@@ -109,6 +111,12 @@ export function registerIpcHandlers(
   });
 
   handle(IPC_CHANNELS.STOCKS_GET_BY_SYMBOLS, (_event, symbols: string[]) => getStocksBySymbols(db, symbols));
+
+  handle(
+    IPC_CHANNELS.STOCKS_INVESTOR_TRADING,
+    (_event, symbol: string, params?: { count?: number; until?: string }) =>
+      getInvestorTrading(db, symbol, params),
+  );
 
   handle(IPC_CHANNELS.MARKET_PRICES, (_event, symbols: string[]) => getPrices(db, symbols));
 
@@ -188,6 +196,10 @@ export function registerIpcHandlers(
 
   ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_CHART, (_event, stock: ChartWindowStock) => {
     openChartWindow?.(stock);
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_DAILY_PRICES, (_event, stock: ChartWindowStock) => {
+    openDailyPricesWindow?.(stock);
   });
 
   if (wsClient) {

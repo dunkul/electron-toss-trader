@@ -6,4 +6,5 @@ export const TOSS_API_PATHS = {
   HOLDINGS: '/api/v1/holdings',
   STOCKS_ALL: '/api/v1/stocks/all',
   RANKINGS: '/api/v1/rankings',
+  STOCK_INVESTOR_TRADING: (symbol: string) => `/api/v1/stocks/${encodeURIComponent(symbol)}/investor-trading`,
 } as const;

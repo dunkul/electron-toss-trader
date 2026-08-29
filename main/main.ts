@@ -86,6 +86,61 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
   }
 }
 
+// 차트 팝업과 같은 구조의 일별시세 팝업 창 — 최대 하나만 유지하고, 이미 떠 있으면 포커스 후
+// 표시 종목만 바꾼다.
+let dailyPricesWindow: BrowserWindow | null = null;
+let dailyPricesWindowReady = false;
+let pendingDailyPricesStock: ChartWindowStock | null = null;
+
+async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
+  if (dailyPricesWindow && !dailyPricesWindow.isDestroyed()) {
+    dailyPricesWindow.focus();
+    if (dailyPricesWindowReady) {
+      dailyPricesWindow.webContents.send(IPC_CHANNELS.WINDOW_DAILY_PRICES_UPDATE_EVENT, stock);
+    } else {
+      pendingDailyPricesStock = stock;
+    }
+    return;
+  }
+
+  const win = createWindow('daily-prices', {
+    width: 480,
+    height: 720,
+    show: false,
+    backgroundColor: '#ffffff',
+    icon: devIconPath,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, 'preload.js'),
+    },
+  });
+  dailyPricesWindow = win;
+  dailyPricesWindowReady = false;
+  pendingDailyPricesStock = null;
+  win.on('closed', () => {
+    if (dailyPricesWindow === win) dailyPricesWindow = null;
+  });
+  win.once('ready-to-show', () => win.show());
+  win.webContents.once('did-finish-load', () => {
+    dailyPricesWindowReady = true;
+    if (pendingDailyPricesStock) {
+      win.webContents.send(IPC_CHANNELS.WINDOW_DAILY_PRICES_UPDATE_EVENT, pendingDailyPricesStock);
+      pendingDailyPricesStock = null;
+    }
+  });
+  registerSnapFollower(win);
+
+  const query = new URLSearchParams({
+    symbol: stock.symbol,
+    name: stock.name,
+    market: stock.market,
+  }).toString();
+  if (isProd) {
+    await win.loadURL(`app://./daily-prices-window?${query}`);
+  } else {
+    await win.loadURL(`http://localhost:${devPort}/daily-prices-window?${query}`);
+  }
+}
+
 (async () => {
   await app.whenReady();
 
@@ -102,11 +157,20 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
     logger.warn('TOSS_CLIENT_ID/TOSS_CLIENT_SECRET가 설정되지 않아 전략 엔진을 시작하지 않았습니다.');
   }
 
-  registerIpcHandlers(db, wsClient, (stock) => {
-    openStockChartWindow(stock).catch((err: unknown) =>
-      logger.error({ err, stock }, 'failed to open chart window'),
-    );
-  });
+  registerIpcHandlers(
+    db,
+    wsClient,
+    (stock) => {
+      openStockChartWindow(stock).catch((err: unknown) =>
+        logger.error({ err, stock }, 'failed to open chart window'),
+      );
+    },
+    (stock) => {
+      openDailyPricesWindow(stock).catch((err: unknown) =>
+        logger.error({ err, stock }, 'failed to open daily prices window'),
+      );
+    },
+  );
 
   Menu.setApplicationMenu(null);
 
@@ -126,10 +190,11 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
   });
   registerSnapAnchor(mainWindow);
 
-  // 메인 윈도우를 닫으면 차트 팝업 창도 함께 닫는다 — 안 그러면 팝업만 남아
+  // 메인 윈도우를 닫으면 차트/일별시세 팝업 창도 함께 닫는다 — 안 그러면 팝업만 남아
   // window-all-closed가 발생하지 않아 프로그램이 완전히 종료되지 않는다.
   mainWindow.on('close', () => {
     if (chartWindow && !chartWindow.isDestroyed()) chartWindow.close();
+    if (dailyPricesWindow && !dailyPricesWindow.isDestroyed()) dailyPricesWindow.close();
   });
 
   mainWindow.webContents.on('before-input-event', (_event, input) => {

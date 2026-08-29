@@ -30,6 +30,12 @@ import { hasTossApiCredentials, saveTossApiCredentials } from '../toss-api/confi
 import { testTossCredentials } from '../toss-api/credentials-test';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
+import {
+  getMarketIndicatorCandles,
+  getMarketIndicatorPrices,
+  type MarketIndicatorSymbol,
+} from '../toss-api/endpoints/market-indicators';
+import { getExchangeRate, getKrMarketCalendar } from '../toss-api/endpoints/market-info';
 import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
 import { getInvestorTrading } from '../toss-api/endpoints/stocks';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
@@ -125,6 +131,26 @@ export function registerIpcHandlers(
     (_event, params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
       getCandles(db, params),
   );
+
+  handle(IPC_CHANNELS.MARKET_INDICATOR_PRICES, (_event, symbols: MarketIndicatorSymbol[]) =>
+    getMarketIndicatorPrices(db, symbols),
+  );
+
+  handle(
+    IPC_CHANNELS.MARKET_INDICATOR_CANDLES,
+    (
+      _event,
+      params: { symbol: MarketIndicatorSymbol; interval: CandleInterval; count?: number; before?: string },
+    ) => getMarketIndicatorCandles(db, params),
+  );
+
+  handle(
+    IPC_CHANNELS.EXCHANGE_RATE,
+    (_event, params: { baseCurrency: string; quoteCurrency: string; dateTime?: string }) =>
+      getExchangeRate(db, params),
+  );
+
+  handle(IPC_CHANNELS.MARKET_CALENDAR_KR, (_event, date?: string) => getKrMarketCalendar(db, date));
 
   handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
 

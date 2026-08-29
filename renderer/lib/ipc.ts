@@ -21,6 +21,13 @@ import type {
   RankingType,
 } from '../../main/toss-api/endpoints/ranking';
 import type { InvestorTradingFigure, InvestorTradingRecord } from '../../main/toss-api/endpoints/stocks';
+import type {
+  MarketIndicatorCandle,
+  MarketIndicatorCandlesPage,
+  MarketIndicatorPrice,
+  MarketIndicatorSymbol,
+} from '../../main/toss-api/endpoints/market-indicators';
+import type { ExchangeRate, KrMarketCalendar } from '../../main/toss-api/endpoints/market-info';
 import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
@@ -46,6 +53,10 @@ const CHANNELS = {
   STOCKS_INVESTOR_TRADING: 'stocks:investorTrading',
   MARKET_PRICES: 'market:prices',
   MARKET_CANDLES: 'market:candles',
+  MARKET_INDICATOR_PRICES: 'market:indicatorPrices',
+  MARKET_INDICATOR_CANDLES: 'market:indicatorCandles',
+  EXCHANGE_RATE: 'market:exchangeRate',
+  MARKET_CALENDAR_KR: 'market:calendarKr',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
@@ -103,6 +114,13 @@ export type { CreateStrategyInput, UpdateStrategyInput };
 export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
 export type { PriceTargetParams };
 export type { InvestorTradingFigure, InvestorTradingRecord };
+export type {
+  MarketIndicatorCandle,
+  MarketIndicatorCandlesPage,
+  MarketIndicatorPrice,
+  MarketIndicatorSymbol,
+};
+export type { ExchangeRate, KrMarketCalendar };
 
 // main/toss-api/endpoints/market.ts의 CANDLE_INTERVALS와 값이 반드시 일치해야 한다 — renderer는
 // main의 런타임 코드를 import할 수 없어(타입만 공유 가능) 값 자체는 여기 다시 선언한다.
@@ -140,6 +158,19 @@ export const api = {
   getPrices: (symbols: string[]) => window.ipc.invoke<PriceQuote[]>(CHANNELS.MARKET_PRICES, symbols),
   getCandles: (params: { symbol: string; interval: CandleInterval; count?: number; before?: string }) =>
     window.ipc.invoke<CandlesPage>(CHANNELS.MARKET_CANDLES, params),
+
+  getMarketIndicatorPrices: (symbols: MarketIndicatorSymbol[]) =>
+    window.ipc.invoke<MarketIndicatorPrice[]>(CHANNELS.MARKET_INDICATOR_PRICES, symbols),
+  getMarketIndicatorCandles: (params: {
+    symbol: MarketIndicatorSymbol;
+    interval: CandleInterval;
+    count?: number;
+    before?: string;
+  }) => window.ipc.invoke<MarketIndicatorCandlesPage>(CHANNELS.MARKET_INDICATOR_CANDLES, params),
+  getExchangeRate: (params: { baseCurrency: string; quoteCurrency: string; dateTime?: string }) =>
+    window.ipc.invoke<ExchangeRate>(CHANNELS.EXCHANGE_RATE, params),
+  getKrMarketCalendar: (date?: string) =>
+    window.ipc.invoke<KrMarketCalendar>(CHANNELS.MARKET_CALENDAR_KR, date),
 
   listWatchlist: () => window.ipc.invoke<WatchlistRow[]>(CHANNELS.WATCHLIST_LIST),
   addToWatchlist: (input: AddToWatchlistInput) =>

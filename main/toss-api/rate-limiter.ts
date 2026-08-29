@@ -10,6 +10,9 @@ export const API_GROUPS = {
   MARKET_DATA_CHART: 'MARKET_DATA_CHART',
   RANKING: 'RANKING',
   STOCK_TRADING_TREND: 'STOCK_TRADING_TREND',
+  MARKET_INDICATOR: 'MARKET_INDICATOR',
+  MARKET_INDICATOR_CHART: 'MARKET_INDICATOR_CHART',
+  MARKET_INFO: 'MARKET_INFO',
 } as const;
 
 export type ApiGroup = (typeof API_GROUPS)[keyof typeof API_GROUPS];
@@ -30,6 +33,11 @@ const RATE_LIMITS: Record<ApiGroup, number> = {
   // 투자자별 매매동향 등 종목별 수급 동향 조회 그룹. 문서에 정확한 TPS가 없어 같은 Stock Info
   // 태그로 묶인 STOCK 그룹과 동일하게 보수적으로 잡는다.
   [API_GROUPS.STOCK_TRADING_TREND]: 5,
+  // 지수/국채 현재가·환율·장 운영 캘린더. 문서에 정확한 TPS가 없어 대시보드 배너 수준의
+  // 가벼운 조회로 보고 보수적으로 잡는다(캔들은 MARKET_DATA_CHART보다 낮춤).
+  [API_GROUPS.MARKET_INDICATOR]: 5,
+  [API_GROUPS.MARKET_INDICATOR_CHART]: 10,
+  [API_GROUPS.MARKET_INFO]: 5,
 };
 
 interface Bucket {

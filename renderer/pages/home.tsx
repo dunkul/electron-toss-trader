@@ -1,29 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Button, Card, Col, Row, Segmented, Statistic, Table } from 'antd';
+import { Alert, App, Button, Card, Col, Row, Segmented, Table } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
 import StockCell from '../components/StockCell';
 import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
+import MarketIndicatorBar, { type MarketIndicatorBarHandle } from '../components/MarketIndicatorBar';
 import { api, onStrategySignal } from '../lib/ipc';
 import { formatAmount, formatRate, profitColor } from '../lib/format';
 import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
-import type {
-  AccountSummary,
-  Holding,
-  HoldingsSummary,
-  Market,
-  StrategyRow,
-  StrategySignalRow,
-  TossExchange,
-} from '../lib/ipc';
-
-function formatKrw(value: string): string {
-  return `${Math.round(Number(value)).toLocaleString()}원`;
-}
+import type { AccountSummary, Holding, HoldingsSummary, Market, TossExchange } from '../lib/ipc';
 
 export default function HomePage() {
   const { notification, message } = App.useApp();
@@ -33,11 +22,10 @@ export default function HomePage() {
   // 보유종목 응답에는 정확한 거래소 코드(KOSPI/NASDAQ 등)가 없어, 차트 창을 열려면 로컬
   // 종목 캐시에서 심볼별 거래소를 따로 조회해야 한다(WatchlistPanel의 보유종목 탭과 같은 방식).
   const [holdingMarkets, setHoldingMarkets] = useState<Record<string, TossExchange>>({});
-  const [strategies, setStrategies] = useState<StrategyRow[]>([]);
-  const [signals, setSignals] = useState<StrategySignalRow[]>([]);
   const [holdingsRefreshing, setHoldingsRefreshing] = useState(false);
   const [holdingsMarket, setHoldingsMarket] = useState<Market>('KR');
   const rankingCardRef = useRef<RankingCardHandle>(null);
+  const marketIndicatorRef = useRef<MarketIndicatorBarHandle>(null);
   const [holdingsTableWrapRef, holdingsTableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
   const loadHoldingMarkets = useCallback((summary: HoldingsSummary) => {
@@ -55,14 +43,8 @@ export default function HomePage() {
   const loadDashboard = useCallback(async () => {
     setError(null);
     try {
-      const [accountList, strategyList, signalList] = await Promise.all([
-        api.listAccounts(),
-        api.listStrategies(),
-        api.listSignals(10),
-      ]);
+      const accountList = await api.listAccounts();
       setAccounts(Array.isArray(accountList) ? accountList : []);
-      setStrategies(Array.isArray(strategyList) ? strategyList : []);
-      setSignals(Array.isArray(signalList) ? signalList : []);
 
       if (Array.isArray(accountList) && accountList[0]) {
         const summary = await api.getHoldings(String(accountList[0].accountSeq));
@@ -90,10 +72,18 @@ export default function HomePage() {
     }
   }, [accounts, loadHoldingMarkets]);
 
-  // 보유 종목/주식 랭킹 중 어느 쪽 새로고침을 눌러도 둘 다 새로고침되도록 맞춘다.
+  // 보유 종목/주식 랭킹/지수 배너 중 어느 쪽 새로고침을 눌러도 셋 다 새로고침되도록 맞춘다.
   const handleHoldingsRefreshClick = useCallback(() => {
     refreshHoldings();
     rankingCardRef.current?.refresh();
+    marketIndicatorRef.current?.refresh();
+  }, [refreshHoldings]);
+
+  // 주식 랭킹 카드는 자기 새로고침 버튼을 누르면 스스로(RankingCard.load)는 이미 다시 불러오므로,
+  // 여기서는 나머지 둘(보유 종목/지수 배너)만 추가로 맞춰준다.
+  const handleRankingRefreshClick = useCallback(() => {
+    refreshHoldings();
+    marketIndicatorRef.current?.refresh();
   }, [refreshHoldings]);
 
   useEffect(() => {
@@ -109,9 +99,7 @@ export default function HomePage() {
     return unsubscribe;
   }, [loadDashboard, notification]);
 
-  const activeStrategies = strategies.filter((s) => s.is_active);
   const holdings = holdingsSummary?.items ?? [];
-  const profitLossKrw = holdingsSummary ? Number(holdingsSummary.profitLoss.amount.krw) : 0;
 
   const sortByProfitRateDesc = (list: Holding[]) =>
     [...list].sort((a, b) => Number(b.profitLoss.rate) - Number(a.profitLoss.rate));
@@ -196,37 +184,9 @@ export default function HomePage() {
           <Alert type="error" message={error} showIcon closable style={{ marginBottom: 16, flex: 'none' }} />
         )}
 
-        <Row gutter={16} style={{ marginBottom: 16, flex: 'none' }}>
-          <Col span={6}>
-            <Card>
-              <Statistic title="등록 계좌 수" value={accounts.length} suffix="개" />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="감시 중인 전략"
-                value={activeStrategies.length}
-                suffix={`/ ${strategies.length}개`}
-              />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic title="최근 알림" value={signals.length} suffix="건" />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card>
-              <Statistic
-                title="평가손익 (원화 보유분)"
-                value={holdingsSummary ? formatKrw(holdingsSummary.profitLoss.amount.krw) : '-'}
-                suffix={holdingsSummary ? formatRate(holdingsSummary.profitLoss.rate) : undefined}
-                styles={{ content: { color: profitColor(profitLossKrw) } }}
-              />
-            </Card>
-          </Col>
-        </Row>
+        <div style={{ marginBottom: 16, flex: 'none' }}>
+          <MarketIndicatorBar ref={marketIndicatorRef} />
+        </div>
 
         <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
           <Col xs={24} xl={12} style={{ height: '100%' }}>
@@ -270,7 +230,7 @@ export default function HomePage() {
           </Col>
 
           <Col xs={24} xl={12} style={{ height: '100%' }}>
-            <RankingCard ref={rankingCardRef} onRefresh={refreshHoldings} />
+            <RankingCard ref={rankingCardRef} onRefresh={handleRankingRefreshClick} />
           </Col>
         </Row>
       </div>

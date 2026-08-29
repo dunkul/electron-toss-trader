@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { App, Button, Card, Segmented, Select, Space, Table, Typography } from 'antd';
+import { App, Button, Card, Dropdown, Segmented, Select, Space, Table, Typography } from 'antd';
+import type { MenuProps } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import StockCell from './StockCell';
@@ -102,6 +103,11 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     }
   };
 
+  // 우클릭 메뉴 항목. 지금은 차트 보기뿐이지만, 추후 일자별 리스트/호가창 등을 여기 추가하면 된다.
+  const getContextMenuItems = (record: RankingItem): MenuProps['items'] => [
+    { key: 'chart', label: '차트 보기', onClick: () => handleOpenChart(record) },
+  ];
+
   const handleTypeChange = (value: RankingType) => {
     setType(value);
     if (REALTIME_UNSUPPORTED.has(value) && duration === 'realtime') setDuration('1d');
@@ -123,9 +129,11 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
       title: '종목',
       key: 'symbol',
       render: (_value, record) => (
-        <a onClick={() => handleOpenChart(record)}>
-          <StockCell name={record.name ?? record.symbol} symbol={record.symbol} />
-        </a>
+        <Dropdown trigger={['contextMenu']} menu={{ items: getContextMenuItems(record) }}>
+          <a onClick={() => handleOpenChart(record)}>
+            <StockCell name={record.name ?? record.symbol} symbol={record.symbol} />
+          </a>
+        </Dropdown>
       ),
     },
     {

@@ -1,6 +1,6 @@
-appId: com.example.nextron
-productName: My Nextron App
-copyright: Copyright © 2026 Yoshihide Shiono
+appId: kr.xingxing.tosstrader
+productName: 토스 트레이더
+copyright: Copyright © 2026 tomato
 directories:
   output: dist
   buildResources: resources

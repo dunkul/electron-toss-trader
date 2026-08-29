@@ -184,8 +184,24 @@ export default function SettingsPage() {
         )}
       </Card>
 
-      <Card title="알림">
+      <Card title="알림" style={{ marginBottom: 16 }}>
         <Button onClick={handleTestNotification}>테스트 알림 보내기</Button>
+      </Card>
+
+      <Card title="정보">
+        <Paragraph>
+          문의사항은{' '}
+          <Text copyable strong>
+            tom@xingxing.kr
+          </Text>{' '}
+          으로 보내주세요.
+        </Paragraph>
+        <Paragraph type="secondary">
+          이 프로젝트는 개인적으로 만든 소프트웨어이며, 상업적 이용·재배포를 허용하지 않습니다.
+        </Paragraph>
+        <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          이 프로그램을 사용하면서 발생하는 모든 일에 대한 책임은 사용자 본인에게 있습니다.
+        </Paragraph>
       </Card>
     </AppLayout>
   );

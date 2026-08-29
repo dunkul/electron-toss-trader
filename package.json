@@ -7,7 +7,7 @@
   "type": "module",
   "main": "app/main.js",
   "scripts": {
-    "dev": "nextron",
+    "dev": "nextron --startup-delay 10000",
     "build": "nextron build",
     "postinstall": "electron-builder install-app-deps",
     "format": "prettier --write .",

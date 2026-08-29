@@ -186,7 +186,7 @@ export default function DailyPricesCard({ stock }: { stock: ChartWindowStock }) 
     >
       <div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-          {selectedDate ? `${selectedDate} 거래주체 순매수` : '거래주체 순매수'}
+          {selectedDate ? `${selectedDate} 거래주체` : '거래주체'}
         </Text>
         <InvestorTradingBars record={selectedRecord} supported={isKr} />
       </div>

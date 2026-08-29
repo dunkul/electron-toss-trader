@@ -94,10 +94,12 @@ function Sparkline({ points, color }: { points: number[]; color: string }) {
     .join(' ');
   const areaPath = `${linePath} L${width},${height} L0,${height} Z`;
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ flexShrink: 0 }}>
-      <path d={areaPath} fill={color} fillOpacity={0.12} />
-      <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} />
-    </svg>
+    <div style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
+      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ flexShrink: 0 }}>
+        <path d={areaPath} fill={color} fillOpacity={0.12} />
+        <path d={linePath} fill="none" stroke={color} strokeWidth={1.5} />
+      </svg>
+    </div>
   );
 }
 

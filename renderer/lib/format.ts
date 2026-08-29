@@ -50,6 +50,12 @@ export function formatCompactAmount(value: number, currency: string): string {
   return new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
 
+// 종목 캐시(로컬 stocks 테이블)에 없는 심볼은 거래소 코드를 몰라 차트/일별시세 등 팝업을 열 수
+// 없다 — 그 상황에서 쓰는 안내 메시지를 한 곳에서 만든다(문구가 여러 화면에서 어긋나지 않도록).
+export function stockCacheMissError(action: string): string {
+  return `종목 캐시에 없는 종목이라 ${action}. 설정에서 종목 캐시를 동기화하세요.`;
+}
+
 export function signalColor(signal: string): string {
   if (signal === 'BUY') return 'green';
   if (signal === 'SELL') return 'red';

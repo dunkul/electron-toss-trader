@@ -18,7 +18,8 @@ import QuotePriceBlock from './QuotePriceBlock';
 import { useStockSearch } from '../hooks/useStockSearch';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import { useMarketSubscription } from '../hooks/useMarketSubscription';
-import { fetchReferencePrices } from '../lib/market-data';
+import { fetchReferencePrices, resolveMarketsBySymbol } from '../lib/market-data';
+import { stockCacheMissError } from '../lib/format';
 import { api, onMarketTick } from '../lib/ipc';
 import { useSelectedStockStore, type SelectedStock } from '../store/useSelectedStockStore';
 import type {
@@ -162,16 +163,7 @@ export default function WatchlistPanel() {
         setHoldingsSummary(summary);
         const symbols = summary.items.map((item) => item.symbol);
         mergePricesAndReferences(symbols);
-        if (symbols.length > 0) {
-          api
-            .getStocksBySymbols(symbols)
-            .then((rows) =>
-              setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))),
-            )
-            .catch(() => setHoldingMarkets({}));
-        } else {
-          setHoldingMarkets({});
-        }
+        resolveMarketsBySymbol(symbols).then(setHoldingMarkets);
       } else {
         setHoldingsSummary(null);
         setHoldingMarkets({});
@@ -444,9 +436,7 @@ export default function WatchlistPanel() {
                           <a
                             onClick={() => {
                               if (!record.market) {
-                                message.error(
-                                  '종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.',
-                                );
+                                message.error(stockCacheMissError('차트를 열 수 없습니다'));
                                 return;
                               }
                               select({

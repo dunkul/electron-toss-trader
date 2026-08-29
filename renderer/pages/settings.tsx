@@ -7,6 +7,10 @@ import type { StocksStatus } from '../lib/ipc';
 
 const { Paragraph, Text } = Typography;
 
+// 전략엔진/시세 WS 클라이언트가 새 자격증명으로 깨끗하게 다시 초기화되도록 앱을 재시작하는데,
+// 성공 메시지를 사용자가 읽을 시간을 준 뒤에 재시작한다.
+const RELAUNCH_DELAY_MS = 1200;
+
 export default function SettingsPage() {
   const { message } = App.useApp();
 
@@ -35,8 +39,7 @@ export default function SettingsPage() {
       message.success('연결에 성공했습니다. 새 설정을 적용하기 위해 앱을 재시작합니다...');
       setClientId('');
       setClientSecret('');
-      // 전략엔진/시세 WS 클라이언트가 새 자격증명으로 깨끗하게 다시 초기화되도록 앱을 재시작한다.
-      setTimeout(() => api.relaunchApp(), 1200);
+      setTimeout(() => api.relaunchApp(), RELAUNCH_DELAY_MS);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
     } finally {

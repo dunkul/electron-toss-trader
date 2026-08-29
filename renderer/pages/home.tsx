@@ -9,7 +9,8 @@ import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import MarketIndicatorBar, { type MarketIndicatorBarHandle } from '../components/MarketIndicatorBar';
 import { api, onStrategySignal } from '../lib/ipc';
-import { formatAmount, formatRate, profitColor } from '../lib/format';
+import { formatAmount, formatRate, profitColor, stockCacheMissError } from '../lib/format';
+import { resolveMarketsBySymbol } from '../lib/market-data';
 import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type { AccountSummary, Holding, HoldingsSummary, Market, TossExchange } from '../lib/ipc';
@@ -29,15 +30,7 @@ export default function HomePage() {
   const [holdingsTableWrapRef, holdingsTableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
   const loadHoldingMarkets = useCallback((summary: HoldingsSummary) => {
-    const symbols = summary.items.map((item) => item.symbol);
-    if (symbols.length === 0) {
-      setHoldingMarkets({});
-      return;
-    }
-    api
-      .getStocksBySymbols(symbols)
-      .then((rows) => setHoldingMarkets(Object.fromEntries(rows.map((row) => [row.symbol, row.market]))))
-      .catch(() => setHoldingMarkets({}));
+    resolveMarketsBySymbol(summary.items.map((item) => item.symbol)).then(setHoldingMarkets);
   }, []);
 
   const loadDashboard = useCallback(async () => {
@@ -109,7 +102,7 @@ export default function HomePage() {
   const handleOpenHoldingChart = (holding: Holding) => {
     const market = holdingMarkets[holding.symbol];
     if (!market) {
-      message.error('종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+      message.error(stockCacheMissError('차트를 열 수 없습니다'));
       return;
     }
     api.openChartWindow({ symbol: holding.symbol, name: holding.name, market });

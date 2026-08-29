@@ -6,7 +6,7 @@ import type { ColumnsType } from 'antd/es/table';
 import StockCell from './StockCell';
 import PriceBlock from './PriceBlock';
 import { api } from '../lib/ipc';
-import { formatCompactAmount, formatRate, profitColor } from '../lib/format';
+import { formatCompactAmount, formatRate, profitColor, stockCacheMissError } from '../lib/format';
 import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type { ChartWindowStock, Market, RankingDuration, RankingItem, RankingType } from '../lib/ipc';
@@ -101,7 +101,7 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     try {
       const stock = await resolveChartWindowStock(record);
       if (!stock) {
-        message.error('종목 캐시에 없는 종목이라 차트를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+        message.error(stockCacheMissError('차트를 열 수 없습니다'));
         return;
       }
       api.openChartWindow(stock);
@@ -114,7 +114,7 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     try {
       const stock = await resolveChartWindowStock(record);
       if (!stock) {
-        message.error('종목 캐시에 없는 종목이라 일별시세를 열 수 없습니다. 설정에서 종목 캐시를 동기화하세요.');
+        message.error(stockCacheMissError('일별시세를 열 수 없습니다'));
         return;
       }
       api.openDailyPricesWindow(stock);

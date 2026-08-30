@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Card, Empty, Typography } from 'antd';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { Card, Empty, Spin, Typography } from 'antd';
 import StockCell from './StockCell';
 import QuotePriceBlock from './QuotePriceBlock';
 import TradingPanel from './TradingPanel';
@@ -21,10 +21,20 @@ interface OrderbookCardProps {
 // 오른쪽에 거래화면(TradingPanel)을 붙인다.
 export default function OrderbookCard({ stock }: OrderbookCardProps) {
   const [orderbook, setOrderbook] = useState<Orderbook | null>(null);
+  // REST 스냅샷이 아직 안 왔는지(로딩 중) vs 받았는데 실패/빈 응답이었는지를 구분해서, 로딩
+  // 도중에 "불러올 수 없습니다"가 잠깐 떴다 사라지는 걸 막는다.
+  const [orderbookLoading, setOrderbookLoading] = useState(true);
   const [price, setPrice] = useState<PriceQuote | null>(null);
   const [referencePrice, setReferencePrice] = useState<number | undefined>(undefined);
   const [tradingSupportEnabled, setTradingSupportEnabled] = useState(false);
   const [orderPrice, setOrderPrice] = useState<number | undefined>(undefined);
+  // WS 갱신이 아니라 REST 최초 스냅샷이 도착했을 때만 스크롤을 내리기 위한 카운터 — orderbook
+  // 자체를 의존성으로 두면 WS push마다 다시 스크롤을 내리게 된다.
+  const [snapshotVersion, setSnapshotVersion] = useState(0);
+  // 스크롤 중앙 정렬이 끝나기 전까지는 래더를 화면에 그대로 노출하지 않는다 — 맨 위에서
+  // 시작했다가 가운데로 튀어 보이는 깜빡임을 막기 위함(측정을 위해 DOM엔 계속 마운트해둔다).
+  const [scrollSettled, setScrollSettled] = useState(false);
+  const ladderScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.getTradingSupportStatus().then((status) => setTradingSupportEnabled(status.enabled));
@@ -34,19 +44,39 @@ export default function OrderbookCard({ stock }: OrderbookCardProps) {
   // 받는다(구독 직후에는 스냅샷이 오지 않고 다음 갱신부터 push되는 스펙이라 REST 선조회가 필요).
   useEffect(() => {
     let cancelled = false;
-    api
+    // 종목 전환 시 이전 종목의 호가/현재가가 화면에 남지 않도록 즉시 로딩 상태로 되돌린다.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 위 이유로 동기 리셋이 필요
+    setOrderbook(null);
+    setOrderbookLoading(true);
+    setScrollSettled(false);
+    setPrice(null);
+
+    const orderbookLoaded = api
       .getOrderbook(stock.symbol)
       .then((ob) => {
-        if (!cancelled) setOrderbook(ob);
+        if (cancelled) return;
+        setOrderbook(ob);
+        setOrderbookLoading(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setOrderbookLoading(false);
+      });
 
-    api
+    const priceLoaded = api
       .getPrices([stock.symbol])
       .then(([quote]) => {
         if (!cancelled && quote) setPrice(quote);
       })
       .catch(() => {});
+
+    // 현재가 행(CurrentPriceRow)은 price가 도착해야만 래더에 끼어드는데, getOrderbook과
+    // getPrices는 서로 다른 시점에 끝나는 별개 REST 호출이다. 호가 스냅샷만 보고 스크롤 중앙
+    // 정렬을 계산하면, 그 이후에 현재가 행이 추가되면서 콘텐츠 높이가 늘어나 다시 어긋난다 —
+    // 그래서 두 응답이 다 끝난 뒤에만 스크롤 정렬을 트리거한다.
+    Promise.all([orderbookLoaded, priceLoaded]).then(() => {
+      if (!cancelled) setSnapshotVersion((v) => v + 1);
+    });
+
     fetchReferencePrices([stock.symbol]).then((refs) => {
       if (!cancelled) setReferencePrice(refs[stock.symbol]);
     });
@@ -81,8 +111,27 @@ export default function OrderbookCard({ stock }: OrderbookCardProps) {
     return onOrderbookTick((tick) => {
       if (tick.symbol !== stock.symbol) return;
       setOrderbook({ timestamp: tick.timestamp, currency: tick.currency, asks: tick.asks, bids: tick.bids });
+      setOrderbookLoading(false);
     });
   }, [stock.symbol]);
+
+  // REST 최초 스냅샷이 도착한 직후엔 래더 DOM은 커밋됐어도 브라우저 레이아웃이 아직 자리잡기
+  // 전이라 clientHeight/scrollHeight가 0으로 읽힐 때가 있어, ResizeObserver로 실제 레이아웃이
+  // 잡힌 첫 콜백에서만 계산한다. ResizeObserver는 크기가 실제로 바뀔 때만 다시 호출되므로(같은
+  // 값이면 재호출되지 않는다) "값이 안정될 때까지 기다린다"는 접근은 성립하지 않는다.
+  useEffect(() => {
+    if (snapshotVersion === 0) return;
+    const el = ladderScrollRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      if (el.clientHeight === 0) return;
+      el.scrollTop = (el.scrollHeight - el.clientHeight) / 2;
+      setScrollSettled(true);
+      observer.disconnect();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [snapshotVersion]);
 
   // 주문가격의 초기값은 현재가 — 이후로는 사용자가 호가를 클릭하거나 직접 입력한 값을 유지한다.
   useEffect(() => {
@@ -105,6 +154,9 @@ export default function OrderbookCard({ stock }: OrderbookCardProps) {
         <div style={{ width: tradingSupportEnabled ? 340 : '100%', flex: 'none', minWidth: 0 }}>
           <OrderbookLadder
             orderbook={orderbook}
+            loading={orderbookLoading}
+            settled={scrollSettled}
+            scrollRef={ladderScrollRef}
             currentPrice={price ? Number(price.lastPrice) : undefined}
             referencePrice={referencePrice}
             selectedPrice={orderPrice}
@@ -135,6 +187,11 @@ const LADDER_COLUMNS = '1fr 1.3fr 1fr';
 
 interface OrderbookLadderProps {
   orderbook: Orderbook | null;
+  loading: boolean;
+  // 스크롤 중앙 정렬이 끝났는지 — false인 동안은 래더가 마운트는 돼 있어도(높이 측정용)
+  // 시각적으로는 스피너 뒤에 가려둔다.
+  settled: boolean;
+  scrollRef: RefObject<HTMLDivElement | null>;
   currentPrice: number | undefined;
   referencePrice: number | undefined;
   selectedPrice: number | undefined;
@@ -143,6 +200,9 @@ interface OrderbookLadderProps {
 
 function OrderbookLadder({
   orderbook,
+  loading,
+  settled,
+  scrollRef,
   currentPrice,
   referencePrice,
   selectedPrice,
@@ -152,7 +212,7 @@ function OrderbookLadder({
     return (
       <Card size="small" style={{ height: '100%' }} styles={{ body: { height: '100%' } }}>
         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Empty description="호가 정보를 불러올 수 없습니다." />
+          {loading ? <Spin /> : <Empty description="호가 정보를 불러올 수 없습니다." />}
         </div>
       </Card>
     );
@@ -172,9 +232,14 @@ function OrderbookLadder({
     <Card
       size="small"
       style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
-      styles={{ body: { padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' } }}
+      styles={{
+        body: { padding: 0, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' },
+      }}
     >
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+      <div
+        ref={scrollRef}
+        style={{ flex: 1, minHeight: 0, overflowY: 'auto', visibility: settled ? 'visible' : 'hidden' }}
+      >
         {asksDesc.map((level) => (
           <LadderRow
             key={`ask-${level.price}`}
@@ -204,6 +269,20 @@ function OrderbookLadder({
         ))}
       </div>
       <LadderTotalsBar totalAskVolume={totalAskVolume} totalBidVolume={totalBidVolume} />
+      {!settled && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: '#fff',
+          }}
+        >
+          <Spin />
+        </div>
+      )}
     </Card>
   );
 }

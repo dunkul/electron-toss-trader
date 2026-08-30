@@ -38,8 +38,45 @@ export interface OrderbookTick {
   timestamp: string | null;
 }
 
+// realtime-order 채널(personal:order)의 주문 스냅샷 — REST GET /api/v1/orders/{orderId}와 같은
+// 모양이지만 execution.filledAt은 포함하지 않는다. 서버 스펙상 enum 필드도 "unknown code를
+// 허용하도록 구현"이 명시돼 있어 string으로 느슨하게 받는다.
+export interface OrderEventExecution {
+  filledQuantity: string;
+  averageFilledPrice: string | null;
+  filledAmount: string | null;
+  commission: string | null;
+  tax: string | null;
+  settlementDate: string | null;
+}
+
+export interface OrderEventOrder {
+  orderId: string;
+  symbol: string;
+  side: string;
+  orderType: string;
+  timeInForce: string;
+  status: string;
+  price: string | null;
+  quantity: string;
+  orderAmount: string | null;
+  currency: string;
+  orderedAt: string;
+  canceledAt: string | null;
+  execution: OrderEventExecution;
+}
+
+// event: PENDING | PARTIAL_FILL | FILL | CANCELING | CANCELED | REPLACING | REPLACED |
+// REJECTED | CANCEL_REJECTED | REPLACE_REJECTED (그 외 unknown 값도 허용)
+export interface OrderEventTick {
+  event: string;
+  accountSeq: string;
+  order: OrderEventOrder;
+}
+
 type MarketTickListener = (tick: MarketTick) => void;
 type OrderbookTickListener = (tick: OrderbookTick) => void;
+type OrderEventListener = (tick: OrderEventTick) => void;
 
 interface RejectedSubscription {
   target: string;
@@ -52,12 +89,14 @@ function toWsMarket(market: TossExchange): 'kr' | 'us' {
 }
 
 // 시세(trade) 채널은 관심종목/보유종목 등 여러 창이 폭넓게 구독하고, 호가(orderbook)
-// 채널은 호가창 팝업이 떠 있는 동안만 그 종목 하나를 구독한다 — 주문 이벤트(personal:order)는
-// 아직 쓰이지 않는다(주문 실행 기능 자체가 없음).
+// 채널은 호가창 팝업이 떠 있는 동안만 그 종목 하나를 구독한다. 주문 이벤트(personal:order)는
+// 종목이 아니라 계좌(accountSeq) 단위로 구독하며, 이 앱에서 주문을 넣지 않아도(토스증권 앱 등
+// 다른 채널에서 낸 주문도 포함해) 보유 계좌의 체결을 실시간으로 알림받기 위해 항상 구독한다.
 export class TossMarketWsClient {
   private ws: WebSocket | null = null;
   private desired = new Map<string, WsSymbolRef>();
   private desiredOrderbook = new Map<string, WsSymbolRef>();
+  private desiredOrderAccounts = new Set<string>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private declareTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -65,6 +104,7 @@ export class TossMarketWsClient {
   private stopped = true;
   private readonly listeners = new Set<MarketTickListener>();
   private readonly orderbookListeners = new Set<OrderbookTickListener>();
+  private readonly orderEventListeners = new Set<OrderEventListener>();
 
   constructor(private readonly db: Kysely<Database>) {}
 
@@ -78,6 +118,11 @@ export class TossMarketWsClient {
     return () => this.orderbookListeners.delete(listener);
   }
 
+  onOrderEvent(listener: OrderEventListener): () => void {
+    this.orderEventListeners.add(listener);
+    return () => this.orderEventListeners.delete(listener);
+  }
+
   setSymbols(symbols: WsSymbolRef[]): void {
     this.desired = new Map(symbols.map((ref) => [ref.symbol, ref]));
     this.scheduleDeclare();
@@ -85,6 +130,11 @@ export class TossMarketWsClient {
 
   setOrderbookSymbols(symbols: WsSymbolRef[]): void {
     this.desiredOrderbook = new Map(symbols.map((ref) => [ref.symbol, ref]));
+    this.scheduleDeclare();
+  }
+
+  setOrderAccounts(accountSeqs: string[]): void {
+    this.desiredOrderAccounts = new Set(accountSeqs);
     this.scheduleDeclare();
   }
 
@@ -184,6 +234,9 @@ export class TossMarketWsClient {
     };
     addAll(this.desired.values(), 'trade');
     addAll(this.desiredOrderbook.values(), 'orderbook');
+    if (this.desiredOrderAccounts.size > 0) {
+      codesByType.set('personal:order', [...this.desiredOrderAccounts]);
+    }
 
     // 선언형 full-replace: 이 배열이 곧 현재 구독 전체이며, 빠진 항목은 자동 해제된다.
     const declaration = [...codesByType.entries()].map(([type, codes]) => ({ type, codes }));
@@ -202,10 +255,23 @@ export class TossMarketWsClient {
     const { type } = frame as { type: unknown };
 
     if (type === 'message') {
-      // topic 형식: {trade|orderbook}:{kr|us}:{symbol}
+      // topic 형식: {trade|orderbook}:{kr|us}:{symbol} 또는 personal:order:{accountSeq} —
+      // 두 형식 모두 3번째(마지막) 세그먼트가 이 프레임을 구분하는 키(symbol 또는 accountSeq)다.
       const { topic, data } = frame as { topic?: string; data?: Record<string, unknown> };
       const [kind, , symbol] = topic?.split(':') ?? [];
       if (!symbol || !data) return;
+
+      if (kind === 'personal') {
+        const { event, accountSeq, order } = data as {
+          event?: string;
+          accountSeq?: string;
+          order?: OrderEventOrder;
+        };
+        if (!event || !accountSeq || !order) return;
+        const tick: OrderEventTick = { event, accountSeq, order };
+        for (const listener of this.orderEventListeners) listener(tick);
+        return;
+      }
 
       if (kind === 'trade') {
         const { price, volume, currency, timestamp } = data as {

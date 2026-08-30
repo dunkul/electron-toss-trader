@@ -6,11 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Nextron (Electron + Next.js) desktop app that watches Toss Securities (토스증권) Open API market
 data and fires local alerts (desktop notification/sound/in-app) when a user-defined strategy condition
-is met. Phase 1 (current, in progress) is **read-only / alert-only — it never places orders**. Order
-placement, conditional orders, and an automated trading engine are an explicitly deferred phase 2; see
-`docs/PLAN.md` (Korean) for the full design rationale, DB schema origin, and phase 2 plans. Treat
-`docs/PLAN.md` as a living design doc, not a strict changelog — it's kept in sync with the codebase at a
-point in time, but still cross-check anything load-bearing against the actual code before relying on it.
+is met. It also supports **manual order placement, modification, and cancellation** from the orderbook
+window's trading-support panel (`TradingPanel.tsx`, `main/toss-api/endpoints/orders.ts` +
+`order-history.ts`) and real-time order fill notifications over the `personal:order` WebSocket channel —
+orders are real (no paper-trading mode exists on Toss's API), so `TradingPanel.tsx` always shows a
+`Modal.confirm` summary before submitting/canceling an order (modify uses a bottom `Drawer` instead, per
+the modify form's own submit action). Conditional orders and an automated/algorithmic trading engine
+(auto-submitting orders from strategy signals, as opposed to the read-only alert engine in `main/engine/`)
+remain an explicitly deferred phase 2; see `docs/PLAN.md` (Korean) for the full design rationale, DB
+schema origin, and phase 2 plans. Treat `docs/PLAN.md` as a living design doc, not a strict changelog —
+it's kept in sync with the codebase at a point in time, but still cross-check anything load-bearing
+against the actual code before relying on it.
 
 ## Commands
 
@@ -60,17 +66,39 @@ false`) — the renderer never imports main-process code at runtime, only types.
   refreshed on 401 with a safety margin before expiry. There is no refresh-token flow; expiry always
   means re-requesting a fresh token.
 - `rate-limiter.ts` — one token-bucket per `ApiGroup` (`AUTH`, `ACCOUNT`, `ASSET`, `STOCK`,
-  `STOCK_ALL`, `MARKET_DATA`, `MARKET_DATA_CHART`), capacities matching Toss's per-group TPS limits.
-  `ACCOUNT` is capped at 1 TPS — anything touching account data must be cached, not polled tightly.
-  Order-related groups (`ORDER`, `ORDER_INFO`, `CONDITIONAL_ORDER`) are intentionally not registered
-  since phase 1 never calls those endpoints.
+  `STOCK_ALL`, `MARKET_DATA`, `MARKET_DATA_CHART`, `ORDER_INFO`, `ORDER`, ...), capacities matching
+  the developer docs' "Rate Limits" table (per docs/PLAN.md §3.2 — that table is the source of truth,
+  not this file). Some groups (`ORDER`, `ORDER_INFO`) have a lower documented peak-time cap around
+  KR market open that this bucket doesn't special-case — the docs themselves note limits can change
+  without notice anyway, and `http-client.ts` already retries 429s with backoff regardless. `ACCOUNT`
+  is capped at 1 TPS — anything touching account data must be cached, not polled tightly.
+  `CONDITIONAL_ORDER`/`CONDITIONAL_ORDER_HISTORY` and bare `MARKET_INDICATOR` (investor-trading) are
+  intentionally not registered — their endpoints are still unimplemented (phase 2, or just not built
+  yet for `MARKET_INDICATOR`).
 - `http-client.ts` (`tossRequest`) — the single entry point for all calls: acquires the group's rate
   limit, attaches the bearer token, retries once on 401 via forced token refresh, and retries on 429
   with exponential backoff + jitter (honoring `Retry-After`). Non-2xx responses are logged to
   `system_logs` and thrown as `TossApiError`. Always route new endpoint calls through this function
   rather than calling `fetch` directly.
 - `endpoints/*.ts` — thin wrappers per resource (`account.ts`, `market.ts`, `stocks.ts`) built on
-  `tossRequest`; `paths.ts` centralizes URL path templates.
+  `tossRequest`; `paths.ts` centralizes URL path templates. `orders.ts`'s `createOrder()`/`modifyOrder()`
+  are the exception to "throw `TossApiError` on failure": a `confirm-high-value-required` rejection (KRW
+  orders ≥ 1억원) is returned as `{ ok: false, code, message }` instead of thrown, because a thrown
+  error's custom fields (`TossApiError.code`) don't survive the `ipcMain.handle` → renderer boundary —
+  only `.message` does — so the renderer couldn't otherwise branch on it to show the re-confirm dialog.
+  `cancelOrder()` always throws normally (no analogous "expected" failure to special-case). `orderType`
+  stays `'LIMIT'` for every `modifyOrder()` call — `TradingPanel.tsx` only offers 정정 on `LIMIT` orders
+  (market orders' 정정 button is disabled), so it never needs to convert order types via modify.
+  `order-history.ts`'s `listOrders()` (`GET /orders`, `ORDER_HISTORY` rate group) backs `TradingPanel.tsx`'s
+  "대기"(`status: 'OPEN'`)/"완료"(`status: 'CLOSED'`) tabs — order creation/modify/cancel aren't persisted
+  locally, so this is the only per-symbol order history/state the app has; after a modify or cancel the
+  panel always re-fetches `status: 'OPEN'` rather than patching state locally, since a successful
+  modify/cancel gets a **new** `orderId` from the API (the original order's id is superseded).
+- `ws-client.ts` (`TossMarketWsClient`) also subscribes to the `personal:order` channel (account-scoped,
+  not symbol-scoped) unconditionally at boot once accounts are known — independent of whether this app
+  places any orders itself, so fills placed via the Toss app/website are also alerted. Only `FILL`/
+  `PARTIAL_FILL` events trigger a notification (`notifyOrderFill` in `main/notify/notifier.ts`); other
+  lifecycle events (`PENDING`, `CANCELED`, ...) are received but intentionally not alerted on.
 - `stock-cache.ts` — syncs the full tradable-stock master list (all KR/US markets) into the `stocks`
   table once/day (`STOCK_ALL` is 1 TPS, so 7 markets naturally paces to ~7s); used for search/autocomplete
   so the UI never round-trips to the API for a symbol lookup.

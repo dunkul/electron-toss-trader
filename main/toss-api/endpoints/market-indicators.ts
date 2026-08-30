@@ -35,7 +35,7 @@ export async function getMarketIndicatorPrices(
 ): Promise<MarketIndicatorPrice[]> {
   const response = await tossRequest<MarketIndicatorPricesResponse>(
     db,
-    API_GROUPS.MARKET_INDICATOR,
+    API_GROUPS.MARKET_INDICATOR_PRICE,
     TOSS_API_PATHS.MARKET_INDICATOR_PRICES,
     { query: { symbols: symbols.join(',') } },
   );

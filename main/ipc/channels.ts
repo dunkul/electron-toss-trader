@@ -25,6 +25,10 @@ export const IPC_CHANNELS = {
   MARKET_ORDERBOOK: 'market:orderbook',
   ORDER_INFO_BUYING_POWER: 'orderInfo:buyingPower',
   ORDER_INFO_SELLABLE_QUANTITY: 'orderInfo:sellableQuantity',
+  ORDERS_CREATE: 'orders:create',
+  ORDERS_LIST_HISTORY: 'orders:listHistory',
+  ORDERS_MODIFY: 'orders:modify',
+  ORDERS_CANCEL: 'orders:cancel',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
@@ -56,6 +60,8 @@ export const IPC_CHANNELS = {
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
   MARKET_ORDERBOOK_TICK_EVENT: 'market:orderbookTick',
+  // 본인 계좌 주문이 체결(전량/부분)됐을 때 push — realtime-order WS 채널을 받아서 쏜다
+  ORDER_FILL_EVENT: 'order:fill',
   // 차트 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
   // 일별시세 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트

@@ -10,7 +10,7 @@ import {
   type CreateStrategyInput,
   type UpdateStrategyInput,
 } from '../db/repositories/strategies';
-import { listRecentLogs } from '../db/repositories/logs';
+import { insertSystemLog, listRecentLogs } from '../db/repositories/logs';
 import { listRecentSignals } from '../db/repositories/signals';
 import { countStocks, getStocksBySymbols, searchStocks } from '../db/repositories/stocks';
 import {
@@ -25,13 +25,21 @@ import {
   type AddToWatchlistInput,
 } from '../db/repositories/watchlist';
 import { logger } from '../logger';
-import { notifySignal } from '../notify/notifier';
+import { notifyOrderFill, notifySignal } from '../notify/notifier';
 import { getSetting, setSetting } from '../db/repositories/settings';
 import { hasTossApiCredentials, saveTossApiCredentials } from '../toss-api/config';
 import { testTossCredentials } from '../toss-api/credentials-test';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
 import { getCandles, getOrderbook, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
 import { getBuyingPower, getSellableQuantity } from '../toss-api/endpoints/order-info';
+import {
+  cancelOrder,
+  createOrder,
+  modifyOrder,
+  type CreateOrderParams,
+  type ModifyOrderParams,
+} from '../toss-api/endpoints/orders';
+import { listOrders, type ListOrdersParams } from '../toss-api/endpoints/order-history';
 import {
   getMarketIndicatorCandles,
   getMarketIndicatorPrices,
@@ -49,7 +57,7 @@ import { IPC_CHANNELS } from './channels';
 // 초당 20회 안팎). 버리지 않고 최신값만 유지하므로 화면에 표시되는 값이 밀리지는 않는다.
 const TICK_FLUSH_INTERVAL_MS = 200;
 
-const SETTINGS_KEY_TRADING_SUPPORT_ENABLED = 'trading_support_enabled';
+export const SETTINGS_KEY_TRADING_SUPPORT_ENABLED = 'trading_support_enabled';
 
 // ipcMain.handle을 감싸서 실패를 항상 로그로 남긴다 — 그냥 ipcMain.handle을 쓰면 던져진
 // 에러가 렌더러로는 전달되지만(그건 유지), main 프로세스 쪽(pino/system_logs)에는 아무 흔적도
@@ -166,6 +174,55 @@ export function registerIpcHandlers(
   handle(IPC_CHANNELS.ORDER_INFO_SELLABLE_QUANTITY, (_event, accountSeq: string, symbol: string) =>
     getSellableQuantity(db, accountSeq, symbol),
   );
+
+  // outcome.ok === false(confirm-high-value-required)인 경우는 여기서 따로 로그를 남기지
+  // 않는다 — http-client.ts의 tossRequest가 모든 !res.ok 응답을 이미 system_logs에 ERROR로
+  // 기록하므로, 여기서 또 남기면 같은 사건이 두 줄로 중복된다. 성공 시에만 별도로 남긴다
+  // (성공은 http-client.ts가 기록하지 않으므로).
+  handle(IPC_CHANNELS.ORDERS_CREATE, async (_event, accountSeq: string, params: CreateOrderParams) => {
+    const outcome = await createOrder(db, accountSeq, params);
+    if (outcome.ok) {
+      await insertSystemLog(db, {
+        level: 'INFO',
+        source: 'api',
+        message: `주문 접수: ${params.symbol} ${params.side} ${params.quantity}주 (주문번호 ${outcome.orderId})`,
+        context: { params, outcome },
+      });
+    }
+    return outcome;
+  });
+
+  handle(IPC_CHANNELS.ORDERS_LIST_HISTORY, (_event, accountSeq: string, params: ListOrdersParams) =>
+    listOrders(db, accountSeq, params),
+  );
+
+  // ORDERS_CREATE와 같은 이유로 성공(outcome.ok === true) 시에만 로그를 남긴다.
+  handle(
+    IPC_CHANNELS.ORDERS_MODIFY,
+    async (_event, accountSeq: string, orderId: string, params: ModifyOrderParams) => {
+      const outcome = await modifyOrder(db, accountSeq, orderId, params);
+      if (outcome.ok) {
+        await insertSystemLog(db, {
+          level: 'INFO',
+          source: 'api',
+          message: `주문 정정: ${orderId} → ${outcome.orderId}`,
+          context: { orderId, params, outcome },
+        });
+      }
+      return outcome;
+    },
+  );
+
+  handle(IPC_CHANNELS.ORDERS_CANCEL, async (_event, accountSeq: string, orderId: string) => {
+    const result = await cancelOrder(db, accountSeq, orderId);
+    await insertSystemLog(db, {
+      level: 'INFO',
+      source: 'api',
+      message: `주문 취소: ${orderId} → ${result.orderId}`,
+      context: { orderId, result },
+    });
+    return result;
+  });
 
   handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
 
@@ -309,6 +366,28 @@ export function registerIpcHandlers(
         }
       }
     }, TICK_FLUSH_INTERVAL_MS);
+
+    // 체결(trade)과 달리 계좌 주문 이벤트는 자주 오지 않아 flush 배치 없이 즉시 알림/로그로
+    // 흘려보낸다. FILL/PARTIAL_FILL만 알림 대상 — 나머지 이벤트는 notifyOrderFill의 주석 참고.
+    wsClient.onOrderEvent((tick) => {
+      if (tick.event !== 'FILL' && tick.event !== 'PARTIAL_FILL') return;
+      const payload = {
+        event: tick.event,
+        symbol: tick.order.symbol,
+        side: tick.order.side,
+        orderId: tick.order.orderId,
+        filledQuantity: tick.order.execution.filledQuantity,
+        averageFilledPrice: tick.order.execution.averageFilledPrice,
+        currency: tick.order.currency,
+      } as const;
+      notifyOrderFill(payload);
+      insertSystemLog(db, {
+        level: 'INFO',
+        source: 'ws',
+        message: `주문 체결: ${payload.symbol} ${payload.side} ${payload.filledQuantity}주 (주문번호 ${payload.orderId})`,
+        context: payload,
+      }).catch((err: unknown) => logger.error({ err }, 'failed to log order fill event'));
+    });
   }
 
   handle(IPC_CHANNELS.NOTIFICATIONS_TEST, () => {

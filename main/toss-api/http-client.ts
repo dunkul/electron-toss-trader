@@ -14,6 +14,8 @@ export interface RequestOptions {
   query?: Record<string, string | number | undefined>;
   /** 계좌·자산 API 호출 시 X-Tossinvest-Account 헤더로 전달한다. */
   accountSeq?: string;
+  /** 존재하면 JSON으로 직렬화해 본문으로 보내고 Content-Type을 붙인다(주문 생성 등 POST용). */
+  body?: unknown;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -47,14 +49,16 @@ export async function tossRequest<T>(
   let accessToken = await getAccessToken(db);
   let attempt = 0;
   let refreshedOnce = false;
+  const bodyStr = options.body !== undefined ? JSON.stringify(options.body) : undefined;
 
   for (;;) {
     await rateLimiter.acquire(group);
 
     const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
     if (options.accountSeq) headers['X-Tossinvest-Account'] = options.accountSeq;
+    if (bodyStr !== undefined) headers['Content-Type'] = 'application/json';
 
-    const res = await fetch(url, { method: options.method ?? 'GET', headers });
+    const res = await fetch(url, { method: options.method ?? 'GET', headers, body: bodyStr });
 
     if (res.status === 401 && !refreshedOnce) {
       refreshedOnce = true;

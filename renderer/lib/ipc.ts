@@ -22,6 +22,18 @@ import type {
 } from '../../main/toss-api/endpoints/market';
 import type { BuyingPower } from '../../main/toss-api/endpoints/order-info';
 import type {
+  CreateOrderOutcome,
+  CreateOrderParams,
+  ModifyOrderParams,
+  OrderActionOutcome,
+  OrderActionResult,
+} from '../../main/toss-api/endpoints/orders';
+import type {
+  ListOrdersParams,
+  OrderHistoryItem,
+  OrderHistoryPage,
+} from '../../main/toss-api/endpoints/order-history';
+import type {
   GetRankingsParams,
   RankingDuration,
   RankingItem,
@@ -37,7 +49,7 @@ import type {
 } from '../../main/toss-api/endpoints/market-indicators';
 import type { ExchangeRate, KrMarketCalendar } from '../../main/toss-api/endpoints/market-info';
 import type { MarketTick, OrderbookTick, WsSymbolRef } from '../../main/toss-api/ws-client';
-import type { SignalNotification } from '../../main/notify/notifier';
+import type { OrderFillNotification, SignalNotification } from '../../main/notify/notifier';
 import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
 import type { ChartWindowStock } from '../../main/ipc/register';
 
@@ -68,6 +80,10 @@ const CHANNELS = {
   MARKET_ORDERBOOK: 'market:orderbook',
   ORDER_INFO_BUYING_POWER: 'orderInfo:buyingPower',
   ORDER_INFO_SELLABLE_QUANTITY: 'orderInfo:sellableQuantity',
+  ORDERS_CREATE: 'orders:create',
+  ORDERS_LIST_HISTORY: 'orders:listHistory',
+  ORDERS_MODIFY: 'orders:modify',
+  ORDERS_CANCEL: 'orders:cancel',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
@@ -90,6 +106,7 @@ const CHANNELS = {
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
   MARKET_ORDERBOOK_TICK_EVENT: 'market:orderbookTick',
+  ORDER_FILL_EVENT: 'order:fill',
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
   WINDOW_DAILY_PRICES_UPDATE_EVENT: 'window:dailyPricesUpdate',
   WINDOW_ORDERBOOK_UPDATE_EVENT: 'window:orderbookUpdate',
@@ -134,6 +151,10 @@ export type {
   SignalNotification,
 };
 export type { BuyingPower };
+export type { CreateOrderOutcome, CreateOrderParams };
+export type { ModifyOrderParams, OrderActionOutcome, OrderActionResult };
+export type { ListOrdersParams, OrderHistoryItem, OrderHistoryPage };
+export type { OrderFillNotification };
 export type { CreateStrategyInput, UpdateStrategyInput };
 export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
 export type { PriceTargetParams };
@@ -201,6 +222,14 @@ export const api = {
     window.ipc.invoke<BuyingPower>(CHANNELS.ORDER_INFO_BUYING_POWER, accountSeq, currency),
   getSellableQuantity: (accountSeq: string, symbol: string) =>
     window.ipc.invoke<string>(CHANNELS.ORDER_INFO_SELLABLE_QUANTITY, accountSeq, symbol),
+  createOrder: (accountSeq: string, params: CreateOrderParams) =>
+    window.ipc.invoke<CreateOrderOutcome>(CHANNELS.ORDERS_CREATE, accountSeq, params),
+  listOrderHistory: (accountSeq: string, params: ListOrdersParams) =>
+    window.ipc.invoke<OrderHistoryPage>(CHANNELS.ORDERS_LIST_HISTORY, accountSeq, params),
+  modifyOrder: (accountSeq: string, orderId: string, params: ModifyOrderParams) =>
+    window.ipc.invoke<OrderActionOutcome>(CHANNELS.ORDERS_MODIFY, accountSeq, orderId, params),
+  cancelOrder: (accountSeq: string, orderId: string) =>
+    window.ipc.invoke<OrderActionResult>(CHANNELS.ORDERS_CANCEL, accountSeq, orderId),
 
   listWatchlist: () => window.ipc.invoke<WatchlistRow[]>(CHANNELS.WATCHLIST_LIST),
   addToWatchlist: (input: AddToWatchlistInput) =>
@@ -254,6 +283,10 @@ export function onMarketTick(callback: (tick: MarketTick) => void): () => void {
 
 export function onOrderbookTick(callback: (tick: OrderbookTick) => void): () => void {
   return window.ipc.on<OrderbookTick>(CHANNELS.MARKET_ORDERBOOK_TICK_EVENT, callback);
+}
+
+export function onOrderFill(callback: (payload: OrderFillNotification) => void): () => void {
+  return window.ipc.on<OrderFillNotification>(CHANNELS.ORDER_FILL_EVENT, callback);
 }
 
 // 차트 팝업 창(chart-window.tsx)이 이미 떠 있는 상태에서 다른 종목을 클릭하면, 새 창을 여는 대신

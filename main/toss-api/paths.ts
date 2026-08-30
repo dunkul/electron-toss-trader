@@ -15,4 +15,7 @@ export const TOSS_API_PATHS = {
   ORDERBOOK: '/api/v1/orderbook',
   BUYING_POWER: '/api/v1/buying-power',
   SELLABLE_QUANTITY: '/api/v1/sellable-quantity',
+  ORDERS: '/api/v1/orders',
+  ORDER_MODIFY: (orderId: string) => `/api/v1/orders/${encodeURIComponent(orderId)}/modify`,
+  ORDER_CANCEL: (orderId: string) => `/api/v1/orders/${encodeURIComponent(orderId)}/cancel`,
 } as const;

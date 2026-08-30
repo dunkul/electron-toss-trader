@@ -6,11 +6,17 @@ import serve from 'electron-serve';
 import { createWindow } from './helpers/create-window';
 import { registerSnapAnchor, registerSnapFollower } from './helpers/window-snap';
 import { closeDb, getDb } from './db/connection';
+import { getSetting } from './db/repositories/settings';
 import { StrategyEngine } from './engine/scheduler';
 import { IPC_CHANNELS } from './ipc/channels';
-import { registerIpcHandlers, type ChartWindowStock } from './ipc/register';
+import {
+  registerIpcHandlers,
+  SETTINGS_KEY_TRADING_SUPPORT_ENABLED,
+  type ChartWindowStock,
+} from './ipc/register';
 import { logger } from './logger';
 import { hasTossApiCredentials, loadTossApiCredentials } from './toss-api/config';
+import { fetchAndCacheAccounts } from './toss-api/endpoints/account';
 import { ensureStocksCached } from './toss-api/stock-cache';
 import { TossMarketWsClient } from './toss-api/ws-client';
 
@@ -175,9 +181,15 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
     return;
   }
 
+  // 매매지원이 켜져 있으면 호가 래더 옆에 거래화면(TradingPanel)이 붙어 폭이 670px보다
+  // 좁아지면 레이아웃이 깨진다 — 창을 그 아래로 줄일 수 없게 최소 폭을 고정한다.
+  const tradingSupportEnabled =
+    (await getSetting(getDb(), SETTINGS_KEY_TRADING_SUPPORT_ENABLED)) === '1';
+
   const win = createWindow('orderbook', {
     width: 720,
     height: 800,
+    minWidth: tradingSupportEnabled ? 680 : undefined,
     show: false,
     backgroundColor: '#ffffff',
     icon: devIconPath,
@@ -225,6 +237,11 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
     strategyEngine.start();
     wsClient = new TossMarketWsClient(db);
     wsClient.start().catch((err: unknown) => logger.error({ err }, 'market ws client failed to start'));
+    // 계좌 주문 체결 알림(personal:order)은 이 앱이 주문을 내지 않아도(토스증권 앱 등 다른
+    // 채널의 주문 포함) 항상 받는다 — 매매지원 토글과 무관하게 부팅 시 한 번만 구독을 선언한다.
+    fetchAndCacheAccounts(db)
+      .then((accounts) => wsClient?.setOrderAccounts(accounts.map((account) => String(account.accountSeq))))
+      .catch((err: unknown) => logger.error({ err }, 'failed to load accounts for order-event subscription'));
     ensureStocksCached(db).catch((err: unknown) => logger.error({ err }, 'stock master sync failed'));
   } else {
     logger.warn('TOSS_CLIENT_ID/TOSS_CLIENT_SECRET가 설정되지 않아 전략 엔진을 시작하지 않았습니다.');

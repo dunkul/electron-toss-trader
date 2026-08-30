@@ -11,8 +11,8 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Button, Layout, Menu } from 'antd';
-import { api } from '../lib/ipc';
+import { App, Button, Layout, Menu } from 'antd';
+import { api, onOrderFill } from '../lib/ipc';
 
 const { Sider, Content } = Layout;
 
@@ -46,6 +46,7 @@ const NAV_ITEMS = [
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const { notification } = App.useApp();
   // null = 아직 확인 전. 확인 전/미설정 상태에서는 설정 탭 외 다른 탭을 막는다 — 처음 실행이거나
   // client_id/secret이 아직 저장되어 있지 않은 경우 바로 설정 탭으로 보낸다.
   const [configured, setConfigured] = useState<boolean | null>(credentialsStatusCache);
@@ -72,6 +73,24 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [router]);
+
+  // 데스크톱 알림(main 프로세스)과 별개로, 메인 창이 떠 있는 동안 어느 탭에 있든 보이도록
+  // 여기(AppLayout)에서 인앱 토스트를 띄운다 — 전략 신호(home.tsx)와 달리 특정 화면에 종속된
+  // 이벤트가 아니라서 대시보드에만 두면 다른 탭에 있을 때 놓친다.
+  useEffect(() => {
+    return onOrderFill((payload) => {
+      const sideLabel = payload.side === 'BUY' ? '매수' : '매도';
+      const eventLabel = payload.event === 'FILL' ? '전량체결' : '부분체결';
+      const priceText =
+        payload.averageFilledPrice !== null
+          ? ` @ ${payload.currency === 'USD' ? '$' : ''}${Number(payload.averageFilledPrice).toLocaleString()}${payload.currency === 'USD' ? '' : '원'}`
+          : '';
+      notification.info({
+        message: `[${eventLabel}] ${payload.symbol} ${sideLabel}`,
+        description: `${Number(payload.filledQuantity).toLocaleString()}주${priceText}`,
+      });
+    });
+  }, [notification]);
 
   const locked = configured !== true;
 

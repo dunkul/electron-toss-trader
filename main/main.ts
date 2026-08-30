@@ -33,6 +33,15 @@ if (isProd) {
 let wsClient: TossMarketWsClient | undefined;
 let strategyEngine: StrategyEngine | undefined;
 
+// 메인 창과 차트/일별시세/호가창 팝업 모두에서 F12로 개발자도구를 열 수 있게 한다.
+function registerDevToolsToggle(win: BrowserWindow): void {
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type === 'keyDown' && input.key === 'F12') {
+      win.webContents.toggleDevTools();
+    }
+  });
+}
+
 // 대시보드/시세 화면 등에서 종목을 클릭해 여는 차트 팝업 창 — 최대 하나만 유지한다. 이미 떠
 // 있으면 새 창을 또 띄우는 대신 그 창을 포커스하고 표시 종목만 바꾼다(WINDOW_CHART_UPDATE_EVENT).
 let chartWindow: BrowserWindow | null = null;
@@ -71,6 +80,7 @@ async function openStockChartWindow(stock: ChartWindowStock): Promise<void> {
     if (chartWindow === win) chartWindow = null;
   });
   win.once('ready-to-show', () => win.show());
+  registerDevToolsToggle(win);
   win.webContents.once('did-finish-load', () => {
     chartWindowReady = true;
     if (pendingChartStock) {
@@ -126,6 +136,7 @@ async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
     if (dailyPricesWindow === win) dailyPricesWindow = null;
   });
   win.once('ready-to-show', () => win.show());
+  registerDevToolsToggle(win);
   win.webContents.once('did-finish-load', () => {
     dailyPricesWindowReady = true;
     if (pendingDailyPricesStock) {
@@ -181,6 +192,7 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
     if (orderbookWindow === win) orderbookWindow = null;
   });
   win.once('ready-to-show', () => win.show());
+  registerDevToolsToggle(win);
   win.webContents.once('did-finish-load', () => {
     orderbookWindowReady = true;
     if (pendingOrderbookStock) {
@@ -264,11 +276,7 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
     if (orderbookWindow && !orderbookWindow.isDestroyed()) orderbookWindow.close();
   });
 
-  mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') {
-      mainWindow.webContents.toggleDevTools();
-    }
-  });
+  registerDevToolsToggle(mainWindow);
 
   if (isProd) {
     await mainWindow.loadURL('app://./home');

@@ -35,6 +35,20 @@ const QUANTITY_PERCENT_OPTIONS = [10, 25, 50, 100] as const;
 // (같은 조건이라도) 의도적인 재주문일 수 있어 대상에서 제외한다.
 const DUPLICATE_ORDER_WINDOW_MS = 5 * 60 * 1000;
 
+// "대기"/"완료" 탭 행의 날짜 열 — 고정폭 + tabular-nums로 숫자 자릿수가 바뀌어도 줄이 맞는다.
+function formatMonthDay(iso: string): string {
+  const date = new Date(iso);
+  return `${date.getMonth() + 1}.${date.getDate()}`;
+}
+
+const ORDER_ROW_DATE_STYLE = {
+  fontSize: 12,
+  color: 'rgba(0,0,0,0.4)',
+  width: 28,
+  flexShrink: 0,
+  fontVariantNumeric: 'tabular-nums',
+} as const;
+
 interface TradingPanelProps {
   stock: ChartWindowStock;
   currency: string;
@@ -569,9 +583,8 @@ function PendingOrdersList({
 
   return (
     <>
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-        {orders.map((order) => {
-          const orderedDate = new Date(order.orderedAt);
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '2px 4px' }}>
+        {orders.map((order, index) => {
           const sideLabel = order.side === 'BUY' ? '구매' : '판매';
           const sideColor = order.side === 'BUY' ? profitColors.up : profitColors.down;
           const canModify = order.orderType === 'LIMIT';
@@ -579,28 +592,32 @@ function PendingOrdersList({
           return (
             <div
               key={order.orderId}
-              style={{ padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,0.06)' }}
+              style={{
+                padding: '10px 2px',
+                borderTop: index === 0 ? undefined : '1px solid rgba(0,0,0,0.04)',
+              }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <Text style={{ fontSize: 13 }}>
-                  {orderedDate.getMonth() + 1}.{orderedDate.getDate()}{' '}
-                  <span style={{ color: sideColor }}>{sideLabel}</span>{' '}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <Text style={ORDER_ROW_DATE_STYLE}>{formatMonthDay(order.orderedAt)}</Text>
+                <Text style={{ fontSize: 13, flex: 1 }}>
+                  <span style={{ color: sideColor, fontWeight: 600 }}>{sideLabel}</span>{' '}
                   {Number(order.quantity).toLocaleString()}주
                 </Text>
                 {order.price !== null && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    주당 {currencySymbol(order.currency)}
+                  <Text style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                    {currencySymbol(order.currency)}
                     {formatAmount(order.price, order.currency)}
                   </Text>
                 )}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4, marginTop: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14, marginTop: 4 }}>
                 <Tooltip title={canModify ? undefined : '시장가 주문은 정정할 수 없습니다.'}>
                   <span>
                     <Button
                       size="small"
-                      type="link"
+                      type="text"
                       disabled={!canModify}
+                      style={{ fontSize: 12, height: 'auto', padding: '2px 4px', color: 'rgba(0,0,0,0.45)' }}
                       onClick={() => setModifyTarget(order)}
                     >
                       정정
@@ -609,9 +626,10 @@ function PendingOrdersList({
                 </Tooltip>
                 <Button
                   size="small"
-                  type="link"
+                  type="text"
                   danger
                   loading={cancelingOrderId === order.orderId}
+                  style={{ fontSize: 12, height: 'auto', padding: '2px 4px' }}
                   onClick={() => handleCancel(order)}
                 >
                   취소
@@ -801,10 +819,9 @@ function CompletedOrdersList({
   }
 
   return (
-    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '2px 4px' }}>
       {orders.map((order, index) => {
-        const orderedDate = new Date(order.orderedAt);
-        const year = String(orderedDate.getFullYear());
+        const year = String(new Date(order.orderedAt).getFullYear());
         // 같은 해 안에서는 헤더를 반복하지 않고, 이전 항목과 연도가 다를 때만 새로 보여준다.
         const prevYear = index > 0 ? String(new Date(orders[index - 1].orderedAt).getFullYear()) : null;
         const showYearHeader = year !== prevYear;
@@ -812,39 +829,45 @@ function CompletedOrdersList({
         const isReplaced = order.status === 'REPLACED';
         const sideLabel = order.side === 'BUY' ? '구매' : '판매';
         const sideColor = order.side === 'BUY' ? profitColors.up : profitColors.down;
-        const displayPrice = order.price ?? order.execution.averageFilledPrice;
+        // 취소·거부된 주문은 체결가가 없거나 무의미해서(토스 앱과 동일하게) 금액 자체를 숨긴다.
+        const displayPrice = isVoided ? null : (order.price ?? order.execution.averageFilledPrice);
 
         return (
           <div key={order.orderId}>
             {showYearHeader && (
-              <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>
+              <Text
+                style={{
+                  display: 'block',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: 'rgba(0,0,0,0.4)',
+                  letterSpacing: 0.2,
+                  marginTop: index === 0 ? 0 : 18,
+                  marginBottom: 2,
+                }}
+              >
                 {year}
               </Text>
             )}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'baseline',
-                padding: '6px 0',
-                opacity: isVoided ? 0.45 : 1,
-                textDecoration: isVoided ? 'line-through' : undefined,
-              }}
-            >
-              <Text style={{ fontSize: 13 }}>
-                {orderedDate.getMonth() + 1}.{orderedDate.getDate()}{' '}
-                <span style={{ color: sideColor }}>{sideLabel}</span>{' '}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '7px 0' }}>
+              <Text style={ORDER_ROW_DATE_STYLE}>{formatMonthDay(order.orderedAt)}</Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  flex: 1,
+                  opacity: isVoided ? 0.45 : 1,
+                  textDecoration: isVoided ? 'line-through' : undefined,
+                }}
+              >
+                <span style={{ color: sideColor, fontWeight: 600 }}>{sideLabel}</span>{' '}
                 {Number(order.quantity).toLocaleString()}주
-                {isReplaced && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {' '}
-                    · 정정됨
-                  </Text>
-                )}
               </Text>
+              {isReplaced && (
+                <Text style={{ fontSize: 11, color: 'rgba(0,0,0,0.4)', whiteSpace: 'nowrap' }}>정정됨</Text>
+              )}
               {displayPrice !== null && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  주당 {currencySymbol(order.currency)}
+                <Text style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  {currencySymbol(order.currency)}
                   {formatAmount(displayPrice, order.currency)}
                 </Text>
               )}

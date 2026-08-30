@@ -17,6 +17,7 @@ import {
 } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
+import { ipcErrorMessage } from '../lib/format';
 import { MARKET_OPTIONS } from '../lib/options';
 import { useStockSearch } from '../hooks/useStockSearch';
 import type { Market, PriceTargetParams, StrategyRow } from '../lib/ipc';
@@ -87,7 +88,7 @@ export default function StrategiesPage() {
       setModalOpen(false);
       loadStrategies();
     } catch (err) {
-      if (err instanceof Error) message.error(err.message);
+      if (err instanceof Error) message.error(ipcErrorMessage(err, err.message));
     } finally {
       setSaving(false);
     }

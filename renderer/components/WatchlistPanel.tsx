@@ -52,7 +52,7 @@ interface HoldingWatchRow {
 // 관심종목 탭 + 보유종목 탭 + 그룹 CRUD를 담당하는 좌측 사이드바. 차트(ChartCard)와는
 // useSelectedStockStore를 통해서만 통신한다(어떤 종목을 골랐는지 알리는 select()/clear()).
 export default function WatchlistPanel() {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { query, setQuery, options } = useStockSearch(15);
   const selected = useSelectedStockStore((s) => s.selected);
   const select = useSelectedStockStore((s) => s.select);
@@ -341,7 +341,7 @@ export default function WatchlistPanel() {
 
   const handleDeleteGroup = useCallback(
     (group: WatchlistGroupRow) => {
-      Modal.confirm({
+      modal.confirm({
         title: `"${group.name}" 탭을 삭제할까요?`,
         content: '탭에 담긴 관심종목도 함께 삭제됩니다.',
         okText: '삭제',
@@ -358,7 +358,7 @@ export default function WatchlistPanel() {
         },
       });
     },
-    [loadGroups, loadWatchlist, message],
+    [loadGroups, loadWatchlist, message, modal],
   );
 
   const handleTabEdit: NonNullable<TabsProps['onEdit']> = useCallback(

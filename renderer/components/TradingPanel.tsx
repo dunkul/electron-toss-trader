@@ -5,7 +5,6 @@ import {
   Drawer,
   Empty,
   InputNumber,
-  Modal,
   Segmented,
   Select,
   Space,
@@ -15,7 +14,7 @@ import {
   Typography,
 } from 'antd';
 import { InfoCircleOutlined, MinusOutlined, PlusOutlined } from '@ant-design/icons';
-import { currencySymbol, formatAmount, formatRate, profitColor } from '../lib/format';
+import { currencySymbol, formatAmount, formatRate, ipcErrorMessage, profitColor } from '../lib/format';
 import { profitColors } from '../lib/theme';
 import { roundToTick, stepPrice } from '../lib/trading';
 import { api } from '../lib/ipc';
@@ -59,7 +58,7 @@ interface TradingPanelProps {
 
 // 매매지원이 켜졌을 때 호가창 오른쪽에 붙는 거래화면. "구매예약하기/판매예약하기"는 실제
 // 주문 API(POST /orders)를 호출한다 — 토스증권 Open API는 모의투자가 없어 클릭 즉시 실계좌에
-// 반영되므로, 제출 전 Modal.confirm으로 주문 내용을 한 번 더 확인시킨다.
+// 반영되므로, 제출 전 modal.confirm으로 주문 내용을 한 번 더 확인시킨다.
 export default function TradingPanel({
   stock,
   currency,
@@ -67,7 +66,7 @@ export default function TradingPanel({
   orderPrice,
   onOrderPriceChange,
 }: TradingPanelProps) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [activeTab, setActiveTab] = useState<TabKey>('buy');
   const [priceMode, setPriceMode] = useState<PriceMode>('limit');
   const [quantity, setQuantity] = useState(0);
@@ -168,7 +167,7 @@ export default function TradingPanel({
       if (!outcome.ok) {
         // confirm-high-value-required — 1억원 이상 주문은 사용자가 금액을 인지했음을 한 번 더
         // 확인시킨 뒤에만 confirmHighValueOrder: true로 재요청한다.
-        Modal.confirm({
+        modal.confirm({
           title: '1억원 이상 주문 확인',
           content: outcome.message,
           okText: '주문 진행',
@@ -182,7 +181,7 @@ export default function TradingPanel({
       setQuantity(0);
       loadAccountData();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '주문 접수에 실패했습니다.');
+      message.error(ipcErrorMessage(err, '주문 접수에 실패했습니다.'));
     } finally {
       setSubmitting(false);
     }
@@ -192,7 +191,7 @@ export default function TradingPanel({
     const sideLabel = activeTab === 'buy' ? '구매' : '판매';
     const priceText =
       priceMode === 'limit' ? `${currencySymbol(currency)}${formatAmount(price, currency)}` : '시장가';
-    Modal.confirm({
+    modal.confirm({
       title: `${sideLabel}를 진행할까요?`,
       content: (
         <div>
@@ -237,7 +236,7 @@ export default function TradingPanel({
             0,
             Math.round((Date.now() - new Date(duplicate.orderedAt).getTime()) / 60000),
           );
-          Modal.warning({
+          modal.warning({
             title: '이미 동일한 대기 주문이 있습니다',
             content: (
               <div>
@@ -492,7 +491,7 @@ function PendingOrdersList({
   accountSeq: string | null;
   symbol: string;
 }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<OrderHistoryItem[]>([]);
   const [loadError, setLoadError] = useState(false);
@@ -518,7 +517,7 @@ function PendingOrdersList({
   }, [accountSeq, loadOrders]);
 
   const handleCancel = (order: OrderHistoryItem) => {
-    Modal.confirm({
+    modal.confirm({
       title: '주문을 취소할까요?',
       content: (
         <div>
@@ -543,7 +542,7 @@ function PendingOrdersList({
           message.success('주문을 취소했습니다.');
           loadOrders();
         } catch (err) {
-          message.error(err instanceof Error ? err.message : '주문 취소에 실패했습니다.');
+          message.error(ipcErrorMessage(err, '주문 취소에 실패했습니다.'));
         } finally {
           setCancelingOrderId(null);
         }
@@ -669,7 +668,7 @@ function ModifyOrderSheet({
   onClose: () => void;
   onModified: () => void;
 }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const isUs = order.currency === 'USD';
   const [price, setPrice] = useState(Number(order.price ?? 0));
   // TODO(미검증 — 실거래로 확인 필요): order.quantity는 원주문 "총 수량"이다(이미 체결된 몫
@@ -692,7 +691,7 @@ function ModifyOrderSheet({
         confirmHighValueOrder,
       });
       if (!outcome.ok) {
-        Modal.confirm({
+        modal.confirm({
           title: '1억원 이상 주문 확인',
           content: outcome.message,
           okText: '정정 진행',
@@ -704,7 +703,7 @@ function ModifyOrderSheet({
       message.success('주문을 정정했습니다.');
       onModified();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '주문 정정에 실패했습니다.');
+      message.error(ipcErrorMessage(err, '주문 정정에 실패했습니다.'));
     } finally {
       setSubmitting(false);
     }

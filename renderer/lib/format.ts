@@ -56,6 +56,19 @@ export function stockCacheMissError(action: string): string {
   return `종목 캐시에 없는 종목이라 ${action}. 설정에서 종목 캐시를 동기화하세요.`;
 }
 
+const IPC_INVOKE_ERROR_PREFIX = /^Error invoking remote method '[^']*':\s*/;
+
+// main 프로세스 IPC 핸들러가 던진 에러(예: TossApiError)는 renderer로 넘어올 때 Electron이
+// "Error invoking remote method '채널명': TossApiError: 실제 메시지" 형태로 감싸버린다 — 원본
+// 메시지만 꺼내 보여주려면 그 접두사와, Error#toString()이 붙인 에러 이름(name) 접두사까지
+// 걷어내야 한다. IPC를 거치지 않은(=접두사가 없는) 에러는 그대로 둔다.
+export function ipcErrorMessage(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const withoutIpcPrefix = err.message.replace(IPC_INVOKE_ERROR_PREFIX, '');
+  if (withoutIpcPrefix === err.message) return withoutIpcPrefix;
+  return withoutIpcPrefix.replace(/^[A-Za-z_$][\w$]*:\s*/, '');
+}
+
 export function signalColor(signal: string): string {
   if (signal === 'BUY') return 'green';
   if (signal === 'SELL') return 'red';

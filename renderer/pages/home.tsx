@@ -9,7 +9,7 @@ import PriceBlock from '../components/PriceBlock';
 import RankingCard, { type RankingCardHandle } from '../components/RankingCard';
 import MarketIndicatorBar, { type MarketIndicatorBarHandle } from '../components/MarketIndicatorBar';
 import { api, onStrategySignal } from '../lib/ipc';
-import { formatAmount, formatRate, profitColor, stockCacheMissError } from '../lib/format';
+import { formatAmount, formatRate, ipcErrorMessage, profitColor, stockCacheMissError } from '../lib/format';
 import { resolveMarketsBySymbol } from '../lib/market-data';
 import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
@@ -45,7 +45,7 @@ export default function HomePage() {
         loadHoldingMarkets(summary);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '대시보드 정보를 불러오지 못했습니다.');
+      setError(ipcErrorMessage(err, '대시보드 정보를 불러오지 못했습니다.'));
     }
   }, [loadHoldingMarkets]);
 
@@ -59,7 +59,7 @@ export default function HomePage() {
       loadHoldingMarkets(summary);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '보유 종목 정보를 불러오지 못했습니다.');
+      setError(ipcErrorMessage(err, '보유 종목 정보를 불러오지 못했습니다.'));
     } finally {
       setHoldingsRefreshing(false);
     }

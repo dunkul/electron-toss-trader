@@ -3,6 +3,7 @@ import Head from 'next/head';
 import { Alert, App, Button, Card, Checkbox, Descriptions, Input, Space, Typography } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
+import { ipcErrorMessage } from '../lib/format';
 import type { StocksStatus } from '../lib/ipc';
 
 const { Paragraph, Text } = Typography;
@@ -40,7 +41,7 @@ export default function SettingsPage() {
       await api.setTradingSupportEnabled(enabled);
     } catch (err) {
       setTradingSupportEnabled(!enabled);
-      message.error(err instanceof Error ? err.message : '매매지원 설정을 저장하지 못했습니다.');
+      message.error(ipcErrorMessage(err, '매매지원 설정을 저장하지 못했습니다.'));
     }
   };
 
@@ -54,7 +55,7 @@ export default function SettingsPage() {
       setClientSecret('');
       setTimeout(() => api.relaunchApp(), RELAUNCH_DELAY_MS);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err));
+      setSaveError(ipcErrorMessage(err, String(err)));
     } finally {
       setSaving(false);
     }
@@ -69,7 +70,7 @@ export default function SettingsPage() {
       message.success(`API 연결 성공 (계좌 ${accounts.length}개 조회됨)`);
     } catch (err) {
       setApiStatus('error');
-      setApiError(err instanceof Error ? err.message : String(err));
+      setApiError(ipcErrorMessage(err, String(err)));
     } finally {
       setTestingApi(false);
     }
@@ -90,7 +91,7 @@ export default function SettingsPage() {
       setStocksStatus(await api.refreshStocks());
       message.success('종목 캐시를 새로 동기화했습니다.');
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '종목 캐시 동기화에 실패했습니다.');
+      message.error(ipcErrorMessage(err, '종목 캐시 동기화에 실패했습니다.'));
     } finally {
       setLoadingStocks(false);
     }

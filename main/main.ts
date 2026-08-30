@@ -147,6 +147,61 @@ async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
   }
 }
 
+// 차트/일별시세 팝업과 같은 구조의 호가창 팝업 창 — 최대 하나만 유지하고, 이미 떠 있으면
+// 포커스 후 표시 종목만 바꾼다.
+let orderbookWindow: BrowserWindow | null = null;
+let orderbookWindowReady = false;
+let pendingOrderbookStock: ChartWindowStock | null = null;
+
+async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
+  if (orderbookWindow && !orderbookWindow.isDestroyed()) {
+    orderbookWindow.focus();
+    if (orderbookWindowReady) {
+      orderbookWindow.webContents.send(IPC_CHANNELS.WINDOW_ORDERBOOK_UPDATE_EVENT, stock);
+    } else {
+      pendingOrderbookStock = stock;
+    }
+    return;
+  }
+
+  const win = createWindow('orderbook', {
+    width: 720,
+    height: 800,
+    show: false,
+    backgroundColor: '#ffffff',
+    icon: devIconPath,
+    webPreferences: {
+      preload: path.join(import.meta.dirname, 'preload.js'),
+    },
+  });
+  orderbookWindow = win;
+  orderbookWindowReady = false;
+  pendingOrderbookStock = null;
+  win.on('closed', () => {
+    if (orderbookWindow === win) orderbookWindow = null;
+  });
+  win.once('ready-to-show', () => win.show());
+  win.webContents.once('did-finish-load', () => {
+    orderbookWindowReady = true;
+    if (pendingOrderbookStock) {
+      win.webContents.send(IPC_CHANNELS.WINDOW_ORDERBOOK_UPDATE_EVENT, pendingOrderbookStock);
+      pendingOrderbookStock = null;
+    }
+  });
+  registerSnapFollower(win);
+
+  const query = new URLSearchParams({
+    symbol: stock.symbol,
+    name: stock.name,
+    market: stock.market,
+  }).toString();
+  if (isProd) {
+    await win.loadURL(`app://./orderbook-window?${query}`);
+  } else {
+    await win.loadURL(`http://localhost:${devPort}/orderbook-window?${query}`);
+  }
+}
+
 (async () => {
   await app.whenReady();
 
@@ -176,6 +231,11 @@ async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
         logger.error({ err, stock }, 'failed to open daily prices window'),
       );
     },
+    (stock) => {
+      openOrderbookWindow(stock).catch((err: unknown) =>
+        logger.error({ err, stock }, 'failed to open orderbook window'),
+      );
+    },
   );
 
   Menu.setApplicationMenu(null);
@@ -201,6 +261,7 @@ async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
   mainWindow.on('close', () => {
     if (chartWindow && !chartWindow.isDestroyed()) chartWindow.close();
     if (dailyPricesWindow && !dailyPricesWindow.isDestroyed()) dailyPricesWindow.close();
+    if (orderbookWindow && !orderbookWindow.isDestroyed()) orderbookWindow.close();
   });
 
   mainWindow.webContents.on('before-input-event', (_event, input) => {

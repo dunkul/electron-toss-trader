@@ -4,12 +4,14 @@ import {
   AutoComplete,
   Button,
   Card,
+  Dropdown,
   Input,
   Modal,
   Popconfirm,
   Table,
   Tabs,
   Typography,
+  type MenuProps,
   type TabsProps,
 } from 'antd';
 import { DeleteOutlined, EditOutlined, HolderOutlined, PlusOutlined } from '@ant-design/icons';
@@ -372,6 +374,25 @@ export default function WatchlistPanel() {
     [groups, handleDeleteGroup],
   );
 
+  const handleOpenOrderbook = useCallback(
+    (stock: { symbol: string; name: string; market: TossExchange | undefined }) => {
+      if (!stock.market) {
+        message.error(stockCacheMissError('호가창을 열 수 없습니다'));
+        return;
+      }
+      api.openOrderbookWindow({ symbol: stock.symbol, name: stock.name, market: stock.market });
+    },
+    [message],
+  );
+
+  const orderbookMenuItems = (stock: {
+    symbol: string;
+    name: string;
+    market: TossExchange | undefined;
+  }): MenuProps['items'] => [
+    { key: 'orderbook', label: '호가창으로 보기', onClick: () => handleOpenOrderbook(stock) },
+  ];
+
   const submitRenameGroup = useCallback(async () => {
     if (!renameTarget) return;
     const name = renameValue.trim();
@@ -433,21 +454,23 @@ export default function WatchlistPanel() {
                         title: '종목',
                         key: 'symbol',
                         render: (_value, record) => (
-                          <a
-                            onClick={() => {
-                              if (!record.market) {
-                                message.error(stockCacheMissError('차트를 열 수 없습니다'));
-                                return;
-                              }
-                              select({
-                                symbol: record.symbol,
-                                name: record.name,
-                                market: record.market,
-                              });
-                            }}
-                          >
-                            <StockCell name={record.name} symbol={record.symbol} market={record.market} />
-                          </a>
+                          <Dropdown trigger={['contextMenu']} menu={{ items: orderbookMenuItems(record) }}>
+                            <a
+                              onClick={() => {
+                                if (!record.market) {
+                                  message.error(stockCacheMissError('차트를 열 수 없습니다'));
+                                  return;
+                                }
+                                select({
+                                  symbol: record.symbol,
+                                  name: record.name,
+                                  market: record.market,
+                                });
+                              }}
+                            >
+                              <StockCell name={record.name} symbol={record.symbol} market={record.market} />
+                            </a>
+                          </Dropdown>
                         ),
                       },
                       {
@@ -499,6 +522,7 @@ export default function WatchlistPanel() {
                   handleSelectFromSearch={handleSelectFromSearch}
                   handleRemove={handleRemove}
                   reorderGroup={reorderGroup}
+                  orderbookMenuItems={orderbookMenuItems}
                 />
               ),
             })),
@@ -558,6 +582,11 @@ interface WatchlistGroupPaneProps {
   handleSelectFromSearch: (stock: StockRow, groupId: number) => void;
   handleRemove: (groupId: number, symbol: string) => void;
   reorderGroup: (groupId: number, draggedSymbol: string, targetSymbol: string) => void;
+  orderbookMenuItems: (stock: {
+    symbol: string;
+    name: string;
+    market: TossExchange | undefined;
+  }) => MenuProps['items'];
 }
 
 // 실시간 틱마다 watchlistPrices/referencePrices가 새 객체로 바뀌어(WatchlistPanel 전체가
@@ -600,6 +629,7 @@ const WatchlistGroupPane = memo(function WatchlistGroupPane({
   handleSelectFromSearch,
   handleRemove,
   reorderGroup,
+  orderbookMenuItems,
 }: WatchlistGroupPaneProps) {
   const [tableWrapRef, tableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
@@ -661,9 +691,11 @@ const WatchlistGroupPane = memo(function WatchlistGroupPane({
               title: '종목',
               key: 'symbol',
               render: (_value, record) => (
-                <a onClick={() => loadSymbol(record)}>
-                  <StockCell name={record.name} symbol={record.symbol} market={record.market} />
-                </a>
+                <Dropdown trigger={['contextMenu']} menu={{ items: orderbookMenuItems(record) }}>
+                  <a onClick={() => loadSymbol(record)}>
+                    <StockCell name={record.name} symbol={record.symbol} market={record.market} />
+                  </a>
+                </Dropdown>
               ),
             },
             {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
+import { Alert, App, Button, Card, Checkbox, Descriptions, Input, Space, Typography } from 'antd';
 import AppLayout from '../components/AppLayout';
 import { api } from '../lib/ipc';
 import type { StocksStatus } from '../lib/ipc';
@@ -27,9 +27,22 @@ export default function SettingsPage() {
   const [stocksStatus, setStocksStatus] = useState<StocksStatus | null>(null);
   const [loadingStocks, setLoadingStocks] = useState(false);
 
+  const [tradingSupportEnabled, setTradingSupportEnabled] = useState(false);
+
   useEffect(() => {
     api.getCredentialsStatus().then((status) => setConfigured(status.configured));
+    api.getTradingSupportStatus().then((status) => setTradingSupportEnabled(status.enabled));
   }, []);
+
+  const handleToggleTradingSupport = async (enabled: boolean) => {
+    setTradingSupportEnabled(enabled);
+    try {
+      await api.setTradingSupportEnabled(enabled);
+    } catch (err) {
+      setTradingSupportEnabled(!enabled);
+      message.error(err instanceof Error ? err.message : '매매지원 설정을 저장하지 못했습니다.');
+    }
+  };
 
   const handleSaveCredentials = async () => {
     setSaving(true);
@@ -185,6 +198,19 @@ export default function SettingsPage() {
             </Descriptions.Item>
           </Descriptions>
         )}
+      </Card>
+
+      <Card title="매매지원" style={{ marginBottom: 16 }}>
+        <Checkbox
+          checked={tradingSupportEnabled}
+          onChange={(e) => handleToggleTradingSupport(e.target.checked)}
+        >
+          매매지원 활성화
+        </Checkbox>
+        <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+          활성화하면 추후 제공되는 호가창에서 실제 매매 API 연동이 가능해집니다. 이 앱은 기본적으로
+          시세 감시·알림 전용이며, 이 옵션을 켜기 전까지는 어떤 주문도 실행되지 않습니다.
+        </Paragraph>
       </Card>
 
       <Card title="알림" style={{ marginBottom: 16 }}>

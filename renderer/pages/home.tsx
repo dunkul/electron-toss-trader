@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Head from 'next/head';
-import { Alert, App, Button, Card, Col, Row, Segmented, Table } from 'antd';
+import { Alert, App, Button, Card, Col, Dropdown, Row, Segmented, Table, type MenuProps } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import AppLayout from '../components/AppLayout';
@@ -108,15 +108,32 @@ export default function HomePage() {
     api.openChartWindow({ symbol: holding.symbol, name: holding.name, market });
   };
 
+  const getOrderbookMenuItems = (holding: Holding): MenuProps['items'] => [
+    {
+      key: 'orderbook',
+      label: '호가창으로 보기',
+      onClick: () => {
+        const market = holdingMarkets[holding.symbol];
+        if (!market) {
+          message.error(stockCacheMissError('호가창을 열 수 없습니다'));
+          return;
+        }
+        api.openOrderbookWindow({ symbol: holding.symbol, name: holding.name, market });
+      },
+    },
+  ];
+
   const holdingColumns: ColumnsType<Holding> = [
     {
       title: '종목',
       dataIndex: 'name',
       width: 170,
       render: (value: string, record) => (
-        <a onClick={() => handleOpenHoldingChart(record)}>
-          <StockCell name={value} symbol={record.symbol} />
-        </a>
+        <Dropdown trigger={['contextMenu']} menu={{ items: getOrderbookMenuItems(record) }}>
+          <a onClick={() => handleOpenHoldingChart(record)}>
+            <StockCell name={value} symbol={record.symbol} />
+          </a>
+        </Dropdown>
       ),
     },
     {

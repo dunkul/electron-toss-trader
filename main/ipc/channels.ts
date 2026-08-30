@@ -22,6 +22,9 @@ export const IPC_CHANNELS = {
   MARKET_INDICATOR_CANDLES: 'market:indicatorCandles',
   EXCHANGE_RATE: 'market:exchangeRate',
   MARKET_CALENDAR_KR: 'market:calendarKr',
+  MARKET_ORDERBOOK: 'market:orderbook',
+  ORDER_INFO_BUYING_POWER: 'orderInfo:buyingPower',
+  ORDER_INFO_SELLABLE_QUANTITY: 'orderInfo:sellableQuantity',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
@@ -33,20 +36,30 @@ export const IPC_CHANNELS = {
   RANKING_LIST: 'ranking:list',
   SETTINGS_CREDENTIALS_STATUS: 'settings:credentialsStatus',
   SETTINGS_SAVE_CREDENTIALS: 'settings:saveCredentials',
+  SETTINGS_TRADING_SUPPORT_STATUS: 'settings:tradingSupportStatus',
+  SETTINGS_SET_TRADING_SUPPORT: 'settings:setTradingSupport',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 실시간 구독할 종목 전체 목록을 매번 새로 선언(full-replace)
   MARKET_SUBSCRIBE: 'market:subscribe',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 호가창 팝업이 실시간 호가를 구독할 종목을 선언(full-replace)
+  MARKET_SUBSCRIBE_ORDERBOOK: 'market:subscribeOrderbook',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 차트를 별도 창으로 띄운다
   WINDOW_OPEN_CHART: 'window:openChart',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 일별시세를 별도 창으로 띄운다
   WINDOW_OPEN_DAILY_PRICES: 'window:openDailyPrices',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 호가창(+ 매매지원 활성 시 거래화면)을
+  // 별도 창으로 띄운다
+  WINDOW_OPEN_ORDERBOOK: 'window:openOrderbook',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 자격증명 저장 후 전략엔진/WS 클라이언트를
   // 깨끗하게 다시 초기화하기 위해 앱을 재시작한다
   APP_RELAUNCH: 'app:relaunch',
   // main -> renderer push 이벤트 (ipcMain.handle이 아니라 webContents.send로 발신)
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
+  MARKET_ORDERBOOK_TICK_EVENT: 'market:orderbookTick',
   // 차트 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
   // 일별시세 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트
   WINDOW_DAILY_PRICES_UPDATE_EVENT: 'window:dailyPricesUpdate',
+  // 호가창 팝업 창이 이미 떠 있을 때, 그 창에 다른 종목을 새로 보여주라고 알리는 이벤트
+  WINDOW_ORDERBOOK_UPDATE_EVENT: 'window:orderbookUpdate',
 } as const;

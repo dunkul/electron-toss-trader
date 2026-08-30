@@ -59,13 +59,50 @@ export async function getCandles(
   db: Kysely<Database>,
   params: { symbol: string; interval: CandleInterval; count?: number; before?: string },
 ): Promise<CandlesPage> {
-  const response = await tossRequest<CandlesResponse>(db, API_GROUPS.MARKET_DATA_CHART, TOSS_API_PATHS.CANDLES, {
-    query: {
-      symbol: params.symbol,
-      interval: params.interval,
-      count: params.count,
-      before: params.before,
+  const response = await tossRequest<CandlesResponse>(
+    db,
+    API_GROUPS.MARKET_DATA_CHART,
+    TOSS_API_PATHS.CANDLES,
+    {
+      query: {
+        symbol: params.symbol,
+        interval: params.interval,
+        count: params.count,
+        before: params.before,
+      },
     },
-  });
+  );
   return response.result ?? EMPTY_CANDLES_PAGE;
+}
+
+export interface OrderbookEntry {
+  price: string;
+  volume: string;
+}
+
+export interface Orderbook {
+  timestamp: string | null;
+  currency: string;
+  // asks는 낮은 가격순, bids는 높은 가격순으로 내려온다 — 즉 asks[0]/bids[0]이 각각 최우선
+  // 매도/매수 호가(현재가에 가장 가까운 호가)다.
+  asks: OrderbookEntry[];
+  bids: OrderbookEntry[];
+}
+
+interface OrderbookResponse {
+  result: Orderbook;
+}
+
+const EMPTY_ORDERBOOK: Orderbook = { timestamp: null, currency: 'KRW', asks: [], bids: [] };
+
+export async function getOrderbook(db: Kysely<Database>, symbol: string): Promise<Orderbook> {
+  const response = await tossRequest<OrderbookResponse>(
+    db,
+    API_GROUPS.MARKET_DATA,
+    TOSS_API_PATHS.ORDERBOOK,
+    {
+      query: { symbol },
+    },
+  );
+  return response.result ?? EMPTY_ORDERBOOK;
 }

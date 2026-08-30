@@ -123,10 +123,23 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
     }
   };
 
-  // 우클릭 메뉴 항목. 추후 호가창 등을 여기 추가하면 된다.
+  const handleOpenOrderbook = async (record: RankingItem) => {
+    try {
+      const stock = await resolveChartWindowStock(record);
+      if (!stock) {
+        message.error(stockCacheMissError('호가창을 열 수 없습니다'));
+        return;
+      }
+      api.openOrderbookWindow(stock);
+    } catch {
+      message.error('호가창을 여는 데 실패했습니다.');
+    }
+  };
+
   const getContextMenuItems = (record: RankingItem): MenuProps['items'] => [
     { key: 'chart', label: '차트 보기', onClick: () => handleOpenChart(record) },
     { key: 'dailyPrices', label: '일별시세', onClick: () => handleOpenDailyPrices(record) },
+    { key: 'orderbook', label: '호가창으로 보기', onClick: () => handleOpenOrderbook(record) },
   ];
 
   const handleTypeChange = (value: RankingType) => {

@@ -4,6 +4,7 @@ import type { Database, TossExchange } from '../db/schema';
 import { logger } from '../logger';
 import { getTossWsUrl } from './config';
 import { getAccessToken } from './token-manager';
+import type { OrderbookEntry } from './endpoints/market';
 
 // 스펙 출처: https://openapi.tossinvest.com/openapi-docs/latest/asyncapi.json
 // (60초 간격 PING 권장, 180초간 클라이언트 발신이 없으면 서버가 연결 종료)
@@ -26,7 +27,19 @@ export interface WsSymbolRef {
   market: TossExchange;
 }
 
+// AsyncAPI 스펙(realtime-orderbook 채널)의 push 프레임 — REST GET /api/v1/orderbook과
+// 데이터 모양이 동일하다. 초기 스냅샷은 오지 않으므로(구독 시점 이후 갱신부터만 push),
+// 호출부는 REST로 먼저 한 번 조회한 뒤 이 이벤트로 갱신해야 한다.
+export interface OrderbookTick {
+  symbol: string;
+  currency: string;
+  asks: OrderbookEntry[];
+  bids: OrderbookEntry[];
+  timestamp: string | null;
+}
+
 type MarketTickListener = (tick: MarketTick) => void;
+type OrderbookTickListener = (tick: OrderbookTick) => void;
 
 interface RejectedSubscription {
   target: string;
@@ -38,16 +51,20 @@ function toWsMarket(market: TossExchange): 'kr' | 'us' {
   return market === 'KOSPI' || market === 'KOSDAQ' || market === 'KR_ETC' ? 'kr' : 'us';
 }
 
-// 시세 채널(trade)만 구독한다 — 호가(orderbook)/주문 이벤트는 이 화면에서 아직 쓰이지 않는다.
+// 시세(trade) 채널은 관심종목/보유종목 등 여러 창이 폭넓게 구독하고, 호가(orderbook)
+// 채널은 호가창 팝업이 떠 있는 동안만 그 종목 하나를 구독한다 — 주문 이벤트(personal:order)는
+// 아직 쓰이지 않는다(주문 실행 기능 자체가 없음).
 export class TossMarketWsClient {
   private ws: WebSocket | null = null;
   private desired = new Map<string, WsSymbolRef>();
+  private desiredOrderbook = new Map<string, WsSymbolRef>();
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private declareTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectAttempt = 0;
   private stopped = true;
   private readonly listeners = new Set<MarketTickListener>();
+  private readonly orderbookListeners = new Set<OrderbookTickListener>();
 
   constructor(private readonly db: Kysely<Database>) {}
 
@@ -56,8 +73,18 @@ export class TossMarketWsClient {
     return () => this.listeners.delete(listener);
   }
 
+  onOrderbookTick(listener: OrderbookTickListener): () => void {
+    this.orderbookListeners.add(listener);
+    return () => this.orderbookListeners.delete(listener);
+  }
+
   setSymbols(symbols: WsSymbolRef[]): void {
     this.desired = new Map(symbols.map((ref) => [ref.symbol, ref]));
+    this.scheduleDeclare();
+  }
+
+  setOrderbookSymbols(symbols: WsSymbolRef[]): void {
+    this.desiredOrderbook = new Map(symbols.map((ref) => [ref.symbol, ref]));
     this.scheduleDeclare();
   }
 
@@ -147,12 +174,16 @@ export class TossMarketWsClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const codesByType = new Map<string, string[]>();
-    for (const ref of this.desired.values()) {
-      const type = `trade:${toWsMarket(ref.market)}`;
-      const codes = codesByType.get(type) ?? [];
-      codes.push(ref.symbol);
-      codesByType.set(type, codes);
-    }
+    const addAll = (refs: Iterable<WsSymbolRef>, kind: 'trade' | 'orderbook') => {
+      for (const ref of refs) {
+        const type = `${kind}:${toWsMarket(ref.market)}`;
+        const codes = codesByType.get(type) ?? [];
+        codes.push(ref.symbol);
+        codesByType.set(type, codes);
+      }
+    };
+    addAll(this.desired.values(), 'trade');
+    addAll(this.desiredOrderbook.values(), 'orderbook');
 
     // 선언형 full-replace: 이 배열이 곧 현재 구독 전체이며, 빠진 항목은 자동 해제된다.
     const declaration = [...codesByType.entries()].map(([type, codes]) => ({ type, codes }));
@@ -171,21 +202,35 @@ export class TossMarketWsClient {
     const { type } = frame as { type: unknown };
 
     if (type === 'message') {
-      const { topic, data } = frame as {
-        topic?: string;
-        data?: { price?: string; volume?: string; currency?: string; timestamp?: string };
-      };
-      // topic 형식: trade:{kr|us}:{symbol}
-      const symbol = topic?.split(':')[2];
-      if (!symbol || !data?.price || !data.volume || !data.currency || !data.timestamp) return;
-      const tick: MarketTick = {
-        symbol,
-        lastPrice: data.price,
-        volume: data.volume,
-        currency: data.currency,
-        timestamp: data.timestamp,
-      };
-      for (const listener of this.listeners) listener(tick);
+      // topic 형식: {trade|orderbook}:{kr|us}:{symbol}
+      const { topic, data } = frame as { topic?: string; data?: Record<string, unknown> };
+      const [kind, , symbol] = topic?.split(':') ?? [];
+      if (!symbol || !data) return;
+
+      if (kind === 'trade') {
+        const { price, volume, currency, timestamp } = data as {
+          price?: string;
+          volume?: string;
+          currency?: string;
+          timestamp?: string;
+        };
+        if (!price || !volume || !currency || !timestamp) return;
+        const tick: MarketTick = { symbol, lastPrice: price, volume, currency, timestamp };
+        for (const listener of this.listeners) listener(tick);
+        return;
+      }
+
+      if (kind === 'orderbook') {
+        const { currency, asks, bids, timestamp } = data as {
+          currency?: string;
+          asks?: OrderbookEntry[];
+          bids?: OrderbookEntry[];
+          timestamp?: string | null;
+        };
+        if (!currency || !asks || !bids) return;
+        const tick: OrderbookTick = { symbol, currency, asks, bids, timestamp: timestamp ?? null };
+        for (const listener of this.orderbookListeners) listener(tick);
+      }
       return;
     }
 

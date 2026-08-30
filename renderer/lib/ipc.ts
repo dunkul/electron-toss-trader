@@ -12,7 +12,15 @@ import type {
   WatchlistRow,
 } from '../../main/db/schema';
 import type { AccountSummary, Holding, HoldingsSummary } from '../../main/toss-api/endpoints/account';
-import type { Candle, CandleInterval, CandlesPage, PriceQuote } from '../../main/toss-api/endpoints/market';
+import type {
+  Candle,
+  CandleInterval,
+  CandlesPage,
+  Orderbook,
+  OrderbookEntry,
+  PriceQuote,
+} from '../../main/toss-api/endpoints/market';
+import type { BuyingPower } from '../../main/toss-api/endpoints/order-info';
 import type {
   GetRankingsParams,
   RankingDuration,
@@ -28,7 +36,7 @@ import type {
   MarketIndicatorSymbol,
 } from '../../main/toss-api/endpoints/market-indicators';
 import type { ExchangeRate, KrMarketCalendar } from '../../main/toss-api/endpoints/market-info';
-import type { MarketTick, WsSymbolRef } from '../../main/toss-api/ws-client';
+import type { MarketTick, OrderbookTick, WsSymbolRef } from '../../main/toss-api/ws-client';
 import type { SignalNotification } from '../../main/notify/notifier';
 import type { PriceTargetParams } from '../../main/engine/strategies/price-target';
 import type { ChartWindowStock } from '../../main/ipc/register';
@@ -57,6 +65,9 @@ const CHANNELS = {
   MARKET_INDICATOR_CANDLES: 'market:indicatorCandles',
   EXCHANGE_RATE: 'market:exchangeRate',
   MARKET_CALENDAR_KR: 'market:calendarKr',
+  MARKET_ORDERBOOK: 'market:orderbook',
+  ORDER_INFO_BUYING_POWER: 'orderInfo:buyingPower',
+  ORDER_INFO_SELLABLE_QUANTITY: 'orderInfo:sellableQuantity',
   WATCHLIST_LIST: 'watchlist:list',
   WATCHLIST_ADD: 'watchlist:add',
   WATCHLIST_REMOVE: 'watchlist:remove',
@@ -68,14 +79,20 @@ const CHANNELS = {
   RANKING_LIST: 'ranking:list',
   SETTINGS_CREDENTIALS_STATUS: 'settings:credentialsStatus',
   SETTINGS_SAVE_CREDENTIALS: 'settings:saveCredentials',
+  SETTINGS_TRADING_SUPPORT_STATUS: 'settings:tradingSupportStatus',
+  SETTINGS_SET_TRADING_SUPPORT: 'settings:setTradingSupport',
   MARKET_SUBSCRIBE: 'market:subscribe',
+  MARKET_SUBSCRIBE_ORDERBOOK: 'market:subscribeOrderbook',
   WINDOW_OPEN_CHART: 'window:openChart',
   WINDOW_OPEN_DAILY_PRICES: 'window:openDailyPrices',
+  WINDOW_OPEN_ORDERBOOK: 'window:openOrderbook',
   APP_RELAUNCH: 'app:relaunch',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
+  MARKET_ORDERBOOK_TICK_EVENT: 'market:orderbookTick',
   WINDOW_CHART_UPDATE_EVENT: 'window:chartUpdate',
   WINDOW_DAILY_PRICES_UPDATE_EVENT: 'window:dailyPricesUpdate',
+  WINDOW_ORDERBOOK_UPDATE_EVENT: 'window:orderbookUpdate',
 } as const;
 
 export interface StocksStatus {
@@ -85,6 +102,10 @@ export interface StocksStatus {
 
 export interface CredentialsStatus {
   configured: boolean;
+}
+
+export interface TradingSupportStatus {
+  enabled: boolean;
 }
 
 export type {
@@ -98,7 +119,7 @@ export type {
   WatchlistGroupRow,
   WatchlistRow,
 };
-export type { MarketTick, WsSymbolRef };
+export type { MarketTick, OrderbookTick, WsSymbolRef };
 export type { AddToWatchlistInput };
 export type {
   AccountSummary,
@@ -107,9 +128,12 @@ export type {
   Candle,
   CandleInterval,
   CandlesPage,
+  Orderbook,
+  OrderbookEntry,
   PriceQuote,
   SignalNotification,
 };
+export type { BuyingPower };
 export type { CreateStrategyInput, UpdateStrategyInput };
 export type { GetRankingsParams, RankingDuration, RankingItem, RankingResult, RankingType };
 export type { PriceTargetParams };
@@ -171,6 +195,12 @@ export const api = {
     window.ipc.invoke<ExchangeRate>(CHANNELS.EXCHANGE_RATE, params),
   getKrMarketCalendar: (date?: string) =>
     window.ipc.invoke<KrMarketCalendar>(CHANNELS.MARKET_CALENDAR_KR, date),
+  getOrderbook: (symbol: string) => window.ipc.invoke<Orderbook>(CHANNELS.MARKET_ORDERBOOK, symbol),
+
+  getBuyingPower: (accountSeq: string, currency: 'KRW' | 'USD') =>
+    window.ipc.invoke<BuyingPower>(CHANNELS.ORDER_INFO_BUYING_POWER, accountSeq, currency),
+  getSellableQuantity: (accountSeq: string, symbol: string) =>
+    window.ipc.invoke<string>(CHANNELS.ORDER_INFO_SELLABLE_QUANTITY, accountSeq, symbol),
 
   listWatchlist: () => window.ipc.invoke<WatchlistRow[]>(CHANNELS.WATCHLIST_LIST),
   addToWatchlist: (input: AddToWatchlistInput) =>
@@ -195,11 +225,19 @@ export const api = {
   saveCredentials: (clientId: string, clientSecret: string) =>
     window.ipc.invoke<void>(CHANNELS.SETTINGS_SAVE_CREDENTIALS, clientId, clientSecret),
 
+  getTradingSupportStatus: () =>
+    window.ipc.invoke<TradingSupportStatus>(CHANNELS.SETTINGS_TRADING_SUPPORT_STATUS),
+  setTradingSupportEnabled: (enabled: boolean) =>
+    window.ipc.invoke<void>(CHANNELS.SETTINGS_SET_TRADING_SUPPORT, enabled),
+
   subscribeMarket: (symbols: WsSymbolRef[]) => window.ipc.send(CHANNELS.MARKET_SUBSCRIBE, symbols),
+  subscribeOrderbook: (symbols: WsSymbolRef[]) =>
+    window.ipc.send(CHANNELS.MARKET_SUBSCRIBE_ORDERBOOK, symbols),
 
   openChartWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_CHART, stock),
   openDailyPricesWindow: (stock: ChartWindowStock) =>
     window.ipc.send(CHANNELS.WINDOW_OPEN_DAILY_PRICES, stock),
+  openOrderbookWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_ORDERBOOK, stock),
 
   relaunchApp: () => window.ipc.send(CHANNELS.APP_RELAUNCH),
 };
@@ -214,6 +252,10 @@ export function onMarketTick(callback: (tick: MarketTick) => void): () => void {
   return window.ipc.on<MarketTick>(CHANNELS.MARKET_TICK_EVENT, callback);
 }
 
+export function onOrderbookTick(callback: (tick: OrderbookTick) => void): () => void {
+  return window.ipc.on<OrderbookTick>(CHANNELS.MARKET_ORDERBOOK_TICK_EVENT, callback);
+}
+
 // 차트 팝업 창(chart-window.tsx)이 이미 떠 있는 상태에서 다른 종목을 클릭하면, 새 창을 여는 대신
 // 이 이벤트로 같은 창의 표시 종목만 바꾼다.
 export function onChartWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
@@ -224,4 +266,10 @@ export function onChartWindowUpdate(callback: (stock: ChartWindowStock) => void)
 // 여는 대신 이 이벤트로 같은 창의 표시 종목만 바꾼다.
 export function onDailyPricesWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
   return window.ipc.on<ChartWindowStock>(CHANNELS.WINDOW_DAILY_PRICES_UPDATE_EVENT, callback);
+}
+
+// 호가창 팝업 창(orderbook-window.tsx)이 이미 떠 있는 상태에서 다른 종목을 클릭하면, 새 창을
+// 여는 대신 이 이벤트로 같은 창의 표시 종목만 바꾼다.
+export function onOrderbookWindowUpdate(callback: (stock: ChartWindowStock) => void): () => void {
+  return window.ipc.on<ChartWindowStock>(CHANNELS.WINDOW_ORDERBOOK_UPDATE_EVENT, callback);
 }

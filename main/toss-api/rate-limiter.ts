@@ -13,12 +13,14 @@ export const API_GROUPS = {
   MARKET_INDICATOR: 'MARKET_INDICATOR',
   MARKET_INDICATOR_CHART: 'MARKET_INDICATOR_CHART',
   MARKET_INFO: 'MARKET_INFO',
+  ORDER_INFO: 'ORDER_INFO',
 } as const;
 
 export type ApiGroup = (typeof API_GROUPS)[keyof typeof API_GROUPS];
 
-// 1차 범위에서 실사용하는 그룹만 등록한다. 주문 계열(ORDER, ORDER_INFO, CONDITIONAL_ORDER)은
-// 2차 개발 착수 시 추가한다.
+// 1차 범위에서 실사용하는 그룹만 등록한다. 주문 실행 계열(ORDER, CONDITIONAL_ORDER)은 실제
+// 주문을 내는 기능 착수 시 추가한다. ORDER_INFO(매수가능금액/매도가능수량 등 조회 전용)는
+// 호가창의 매매지원 화면(수량 %/최대 계산용)이 필요로 해서 예외적으로 먼저 등록한다.
 const RATE_LIMITS: Record<ApiGroup, number> = {
   [API_GROUPS.AUTH]: 5,
   [API_GROUPS.ACCOUNT]: 1,
@@ -38,6 +40,7 @@ const RATE_LIMITS: Record<ApiGroup, number> = {
   [API_GROUPS.MARKET_INDICATOR]: 5,
   [API_GROUPS.MARKET_INDICATOR_CHART]: 10,
   [API_GROUPS.MARKET_INFO]: 5,
+  [API_GROUPS.ORDER_INFO]: 6,
 };
 
 interface Bucket {

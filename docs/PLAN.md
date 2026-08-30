@@ -34,24 +34,24 @@
 
 ## 2. 기술 스택
 
-| 영역                | 선택                                                            | 비고                                                                                                          |
-| ------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 앱 프레임워크       | Nextron (Electron + Next.js)                                      |                                                                                                                     |
-| 언어                | TypeScript                                                         | main/renderer 공통                                                                                                |
-| DB                  | SQLite, Node 내장 `node:sqlite`(`DatabaseSync`)                   | 별도 네이티브 바인딩(better-sqlite3 등) 없이 Node 표준 모듈만 사용 — 배포 시 네이티브 모듈 재빌드 이슈를 피함    |
-| 쿼리 빌더           | Kysely                                                             | `node:sqlite` 위에 얹는 타입 안전 쿼리 빌더. `main/db/schema.ts`의 `Database` 인터페이스가 유일한 스키마 소스   |
-| 마이그레이션        | 자체 러너 (`main/db/migrations.ts` + `schema_migrations` 버전 테이블) | 버전별 `{version, name, sql}` 배열을 트랜잭션으로 순서대로 적용. 이미 적용된 버전의 SQL은 수정하지 않고 새 버전을 추가 |
-| 상태관리(renderer)  | 컴포넌트 로컬 state                                                | 화면별 상태는 각 페이지 컴포넌트가 관리하고, main의 데이터는 `renderer/lib/ipc.ts`의 `api.*` 호출로 그때그때 가져온다 — 화면 수가 많지 않아 전역 스토어 없이도 충분 |
-| UI                  | Ant Design (antd)                                                  | 데이터 테이블/폼이 많은 화면에 적합, 기본 컴포넌트 풍부                                                          |
-| 스타일링            | SCSS (`renderer/styles/globals.scss`) + antd `ConfigProvider` 테마 토큰 | 브랜드 톤(포인트 컬러 등)은 테마 토큰으로, 스크롤바 커스터마이징 등 앱 전역 룩은 전역 스타일시트 한 곳에서 관리 |
-| 코드 품질           | ESLint (`typescript-eslint` + `eslint-config-next` + `react-hooks`) + Prettier | 포맷팅은 Prettier, 버그성 규칙(Hooks 의존성, 미사용 변수 등)은 ESLint로 역할 분리                                |
-| 차트                | lightweight-charts (TradingView)                                   | 캔들차트 렌더링에 특화. 세부 기능 확장 계획은 `docs/CHART.md`                                                    |
-| 알림                | Electron `Notification`(OS 네이티브) + 인앱 알림(IPC push → antd 토스트) | 데스크톱 알림과 화면 내 토스트를 함께 띄운다. 신호별 알림 채널 on/off(`notify_desktop`/`notify_sound`)는 전략마다 설정 가능하도록 스키마/화면에 필드를 마련해둔다 |
-| 실시간 시세         | WebSocket(`ws`) 클라이언트, main 프로세스에서 연결 관리            | 수신한 체결가는 IPC(`market:tick`)로 renderer에 그대로 push                                                      |
-| 스케줄링/전략 루프  | main 프로세스 내 `setInterval`(30초 주기)                          |                                                                                                                     |
-| 환경설정            | `.env` (dotenv)                                                    | 로컬 개발 기준의 1차 크리덴셜 저장소. 배포판에서는 Electron `safeStorage`(OS 자격증명 저장소)로 암호화 이전하는 것을 다음 단계 과제로 남겨둔다 |
-| 로깅                | pino                                                               | 콘솔 출력(dev에서는 `pino-pretty`로 보기 좋게)                                                                    |
-| 창 상태 저장        | `electron-store`                                                  | 창 크기/위치를 기억했다가 다음 실행 시 복원                                                                       |
+| 영역               | 선택                                                                           | 비고                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 앱 프레임워크      | Nextron (Electron + Next.js)                                                   |                                                                                                                                                                     |
+| 언어               | TypeScript                                                                     | main/renderer 공통                                                                                                                                                  |
+| DB                 | SQLite, Node 내장 `node:sqlite`(`DatabaseSync`)                                | 별도 네이티브 바인딩(better-sqlite3 등) 없이 Node 표준 모듈만 사용 — 배포 시 네이티브 모듈 재빌드 이슈를 피함                                                       |
+| 쿼리 빌더          | Kysely                                                                         | `node:sqlite` 위에 얹는 타입 안전 쿼리 빌더. `main/db/schema.ts`의 `Database` 인터페이스가 유일한 스키마 소스                                                       |
+| 마이그레이션       | 자체 러너 (`main/db/migrations.ts` + `schema_migrations` 버전 테이블)          | 버전별 `{version, name, sql}` 배열을 트랜잭션으로 순서대로 적용. 이미 적용된 버전의 SQL은 수정하지 않고 새 버전을 추가                                              |
+| 상태관리(renderer) | 컴포넌트 로컬 state                                                            | 화면별 상태는 각 페이지 컴포넌트가 관리하고, main의 데이터는 `renderer/lib/ipc.ts`의 `api.*` 호출로 그때그때 가져온다 — 화면 수가 많지 않아 전역 스토어 없이도 충분 |
+| UI                 | Ant Design (antd)                                                              | 데이터 테이블/폼이 많은 화면에 적합, 기본 컴포넌트 풍부                                                                                                             |
+| 스타일링           | SCSS (`renderer/styles/globals.scss`) + antd `ConfigProvider` 테마 토큰        | 브랜드 톤(포인트 컬러 등)은 테마 토큰으로, 스크롤바 커스터마이징 등 앱 전역 룩은 전역 스타일시트 한 곳에서 관리                                                     |
+| 코드 품질          | ESLint (`typescript-eslint` + `eslint-config-next` + `react-hooks`) + Prettier | 포맷팅은 Prettier, 버그성 규칙(Hooks 의존성, 미사용 변수 등)은 ESLint로 역할 분리                                                                                   |
+| 차트               | lightweight-charts (TradingView)                                               | 캔들차트 렌더링에 특화. 세부 기능 확장 계획은 `docs/CHART.md`                                                                                                       |
+| 알림               | Electron `Notification`(OS 네이티브) + 인앱 알림(IPC push → antd 토스트)       | 데스크톱 알림과 화면 내 토스트를 함께 띄운다. 신호별 알림 채널 on/off(`notify_desktop`/`notify_sound`)는 전략마다 설정 가능하도록 스키마/화면에 필드를 마련해둔다   |
+| 실시간 시세        | WebSocket(`ws`) 클라이언트, main 프로세스에서 연결 관리                        | 수신한 체결가는 IPC(`market:tick`)로 renderer에 그대로 push                                                                                                         |
+| 스케줄링/전략 루프 | main 프로세스 내 `setInterval`(30초 주기)                                      |                                                                                                                                                                     |
+| 환경설정           | `.env` (dotenv)                                                                | 로컬 개발 기준의 1차 크리덴셜 저장소. 배포판에서는 Electron `safeStorage`(OS 자격증명 저장소)로 암호화 이전하는 것을 다음 단계 과제로 남겨둔다                      |
+| 로깅               | pino                                                                           | 콘솔 출력(dev에서는 `pino-pretty`로 보기 좋게)                                                                                                                      |
+| 창 상태 저장       | `electron-store`                                                               | 창 크기/위치를 기억했다가 다음 실행 시 복원                                                                                                                         |
 
 ### 프로세스 분리 원칙
 
@@ -75,19 +75,19 @@
 
 ### 3.2 Rate Limit (클라이언트 × API 그룹 단위 TPS)
 
-| 그룹              | 초당 한도 | 비고                                          |
-| ----------------- | --------- | --------------------------------------------- |
-| AUTH              | 5         |                                                 |
-| ACCOUNT           | 1         | 매우 낮음 → 캐싱 필수                          |
-| ASSET             | 5         | 보유종목 조회                                  |
-| STOCK             | 5         | 개별 종목 상세 조회                            |
-| STOCK_ALL         | 1         | 전체 종목 마스터 목록(일 1회 배치 동기화 용도)  |
-| MARKET_DATA       | 15        | 시세 (전략 평가의 핵심, 1차의 주 사용처)        |
-| MARKET_DATA_CHART | 20        | 캔들                                            |
+| 그룹              | 초당 한도 | 비고                                                |
+| ----------------- | --------- | --------------------------------------------------- |
+| AUTH              | 5         |                                                     |
+| ACCOUNT           | 1         | 매우 낮음 → 캐싱 필수                               |
+| ASSET             | 5         | 보유종목 조회                                       |
+| STOCK             | 5         | 개별 종목 상세 조회                                 |
+| STOCK_ALL         | 1         | 전체 종목 마스터 목록(일 1회 배치 동기화 용도)      |
+| MARKET_DATA       | 15        | 시세 (전략 평가의 핵심, 1차의 주 사용처)            |
+| MARKET_DATA_CHART | 20        | 캔들                                                |
 | RANKING           | 5         | 랭킹 조회. 문서에 정확한 TPS가 없어 보수적으로 잡음 |
-| ORDER             | 10        | 2차 개발용, 지금은 리미터에 등록하지 않음        |
-| ORDER_INFO        | 6         | 2차 개발용, 지금은 리미터에 등록하지 않음        |
-| CONDITIONAL_ORDER | 5         | 2차 개발용, 지금은 리미터에 등록하지 않음        |
+| ORDER             | 10        | 2차 개발용, 지금은 리미터에 등록하지 않음           |
+| ORDER_INFO        | 6         | 2차 개발용, 지금은 리미터에 등록하지 않음           |
+| CONDITIONAL_ORDER | 5         | 2차 개발용, 지금은 리미터에 등록하지 않음           |
 
 - 응답 헤더 `X-RateLimit-Limit/Remaining/Reset`, 429 시 `Retry-After` 확인
 - **공통 API 클라이언트(`main/toss-api/http-client.ts`의 `tossRequest`)**가 모든 호출의 단일 진입점이다 —
@@ -125,8 +125,11 @@
 - 60초 간격 PING 필요(180초 무응답 시 서버가 끊음)
 - 연결이 끊기면 지수 백오프(최대 30초) + jitter로 재연결하고, 재연결 시 원하는 구독 목록을 처음부터
   다시 선언한다
-- **`trade`(체결가) 채널만 구독한다** — 호가(orderbook)는 1차 화면에 없어 구독하지 않음. 알림 판단
-  기준은 어디까지나 전략 엔진의 폴링(캔들/현재가)이고, WS는 대시보드/차트의 실시간 표시 용도로만 쓴다
+- **`trade`(체결가) 채널**은 관심종목/보유종목/선택종목 등 여러 창이 폭넓게 구독한다. 알림 판단
+  기준은 어디까지나 전략 엔진의 폴링(캔들/현재가)이고, 이 채널은 대시보드/차트의 실시간 표시 용도로만 쓴다
+- **`orderbook`(호가) 채널**도 AsyncAPI 스펙에 존재하며, 호가창 팝업이 떠 있는 동안 그 종목 하나만
+  구독한다(REST `GET /api/v1/orderbook`으로 최초 스냅샷을 받은 뒤, 이후 갱신은 이 채널 push로 받는다 —
+  구독 직후에는 스냅샷이 오지 않고 다음 갱신부터 push되는 스펙이라 REST 선조회가 필요하다)
 
 ### 3.4 에러 처리
 
@@ -399,21 +402,21 @@ Nextron의 `renderer/pages` 기준, 사이드바(LNB) + 콘텐츠 레이아웃. 
 한다. `main/ipc/register.ts`가 각 채널을 `ipcMain.handle`로 연결하고, 대부분 `main/db/
 repositories/*.ts` 함수나 `main/toss-api/endpoints/*.ts` 호출로 그대로 위임한다.
 
-| 채널 그룹        | 방향              | 설명                                                          |
-| ----------------- | ----------------- | --------------------------------------------------------------- |
-| `accounts:*`       | invoke            | 계좌 목록, 보유종목 조회                                        |
-| `strategy:*`       | invoke            | 전략 목록/생성/수정/토글/삭제                                   |
-| `signals:list`      | invoke            | 신호(알림) 이력 조회                                             |
-| `logs:list`         | invoke            | 시스템 로그 조회                                                 |
-| `stocks:*`          | invoke            | 종목 검색, 캐시 상태 조회, 수동 재동기화, 심볼로 일괄 조회        |
-| `market:prices`     | invoke            | 현재가 조회                                                       |
-| `market:candles`    | invoke            | 캔들(OHLCV) 조회                                                  |
-| `watchlist*`        | invoke            | 관심종목/관심종목 그룹 CRUD·순서변경                              |
-| `ranking:list`      | invoke            | 랭킹 조회                                                          |
-| `notifications:test` | invoke           | 테스트 알림 발송(설정 화면용)                                     |
-| `market:subscribe`  | send(응답 없음)   | 실시간 구독할 심볼 전체 목록을 매번 새로 선언(full-replace)       |
-| `market:tick`       | on(main→renderer) | 실시간 시세 push                                                  |
-| `strategy:signal`   | on(main→renderer) | 신호 발생 push (토스트/알림 트리거)                               |
+| 채널 그룹            | 방향              | 설명                                                        |
+| -------------------- | ----------------- | ----------------------------------------------------------- |
+| `accounts:*`         | invoke            | 계좌 목록, 보유종목 조회                                    |
+| `strategy:*`         | invoke            | 전략 목록/생성/수정/토글/삭제                               |
+| `signals:list`       | invoke            | 신호(알림) 이력 조회                                        |
+| `logs:list`          | invoke            | 시스템 로그 조회                                            |
+| `stocks:*`           | invoke            | 종목 검색, 캐시 상태 조회, 수동 재동기화, 심볼로 일괄 조회  |
+| `market:prices`      | invoke            | 현재가 조회                                                 |
+| `market:candles`     | invoke            | 캔들(OHLCV) 조회                                            |
+| `watchlist*`         | invoke            | 관심종목/관심종목 그룹 CRUD·순서변경                        |
+| `ranking:list`       | invoke            | 랭킹 조회                                                   |
+| `notifications:test` | invoke            | 테스트 알림 발송(설정 화면용)                               |
+| `market:subscribe`   | send(응답 없음)   | 실시간 구독할 심볼 전체 목록을 매번 새로 선언(full-replace) |
+| `market:tick`        | on(main→renderer) | 실시간 시세 push                                            |
+| `strategy:signal`    | on(main→renderer) | 신호 발생 push (토스트/알림 트리거)                         |
 
 ---
 
@@ -421,14 +424,14 @@ repositories/*.ts` 함수나 `main/toss-api/endpoints/*.ts` 호출로 그대로 
 
 ### 1차 (알림 프로그램)
 
-| 단계 | 내용                  | 산출물                                                                     |
-| ---- | --------------------- | ---------------------------------------------------------------------------- |
-| 0    | 프로젝트 셋업         | DB(`node:sqlite`+Kysely), `.env`, 로거, antd 설치, IPC 스캐폴딩              |
+| 단계 | 내용                  | 산출물                                                                        |
+| ---- | --------------------- | ----------------------------------------------------------------------------- |
+| 0    | 프로젝트 셋업         | DB(`node:sqlite`+Kysely), `.env`, 로거, antd 설치, IPC 스캐폴딩               |
 | 1    | API 클라이언트 & 인증 | OAuth 토큰 매니저, 레이트리미터, 공통 에러 파서, 시세/계좌 조회 확인          |
 | 2    | 대시보드 & 시세 화면  | 계좌/보유종목/랭킹 조회, 관심종목 탭, 캔들+거래량 차트, WebSocket 실시간 반영 |
 | 3    | 전략 엔진 & 알림      | 전략 CRUD(목표가 알림), 평가 루프, 데스크톱+인앱 알림 발송, 쿨다운 처리       |
-| 4    | 알림 내역/로그 화면   | strategy_signals/system_logs 화면화, CSV 내보내기                            |
-| 5    | 안정화                | WS 재연결/재구독, 429 백오프 검증, 장시간 구동(상시 실행) 테스트             |
+| 4    | 알림 내역/로그 화면   | strategy_signals/system_logs 화면화, CSV 내보내기                             |
+| 5    | 안정화                | WS 재연결/재구독, 429 백오프 검증, 장시간 구동(상시 실행) 테스트              |
 
 ### 2차 (수동/자동매매 — 추후)
 

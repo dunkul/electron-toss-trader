@@ -26,10 +26,12 @@ import {
 } from '../db/repositories/watchlist';
 import { logger } from '../logger';
 import { notifySignal } from '../notify/notifier';
+import { getSetting, setSetting } from '../db/repositories/settings';
 import { hasTossApiCredentials, saveTossApiCredentials } from '../toss-api/config';
 import { testTossCredentials } from '../toss-api/credentials-test';
 import { fetchAndCacheAccounts, getHoldings } from '../toss-api/endpoints/account';
-import { getCandles, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
+import { getCandles, getOrderbook, getPrices, type CandleInterval } from '../toss-api/endpoints/market';
+import { getBuyingPower, getSellableQuantity } from '../toss-api/endpoints/order-info';
 import {
   getMarketIndicatorCandles,
   getMarketIndicatorPrices,
@@ -39,13 +41,15 @@ import { getExchangeRate, getKrMarketCalendar } from '../toss-api/endpoints/mark
 import { getRankings, type GetRankingsParams } from '../toss-api/endpoints/ranking';
 import { getInvestorTrading } from '../toss-api/endpoints/stocks';
 import { ensureStocksCached, getLastStocksSyncedAt } from '../toss-api/stock-cache';
-import type { MarketTick, TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
+import type { MarketTick, OrderbookTick, TossMarketWsClient, WsSymbolRef } from '../toss-api/ws-client';
 import { IPC_CHANNELS } from './channels';
 
 // 심볼별 최신 틱만 남겨뒀다가 이 주기로 한 번에 흘려보낸다 — 체결이 잦을 때 틱 하나마다
 // IPC를 보내면 렌더러가 매번 리렌더링해야 해서 부하가 커진다(관심종목/보유종목 화면 실측
 // 초당 20회 안팎). 버리지 않고 최신값만 유지하므로 화면에 표시되는 값이 밀리지는 않는다.
 const TICK_FLUSH_INTERVAL_MS = 200;
+
+const SETTINGS_KEY_TRADING_SUPPORT_ENABLED = 'trading_support_enabled';
 
 // ipcMain.handle을 감싸서 실패를 항상 로그로 남긴다 — 그냥 ipcMain.handle을 쓰면 던져진
 // 에러가 렌더러로는 전달되지만(그건 유지), main 프로세스 쪽(pino/system_logs)에는 아무 흔적도
@@ -76,6 +80,7 @@ export function registerIpcHandlers(
   wsClient?: TossMarketWsClient,
   openChartWindow?: (stock: ChartWindowStock) => void,
   openDailyPricesWindow?: (stock: ChartWindowStock) => void,
+  openOrderbookWindow?: (stock: ChartWindowStock) => void,
 ): void {
   handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
@@ -152,6 +157,16 @@ export function registerIpcHandlers(
 
   handle(IPC_CHANNELS.MARKET_CALENDAR_KR, (_event, date?: string) => getKrMarketCalendar(db, date));
 
+  handle(IPC_CHANNELS.MARKET_ORDERBOOK, (_event, symbol: string) => getOrderbook(db, symbol));
+
+  handle(IPC_CHANNELS.ORDER_INFO_BUYING_POWER, (_event, accountSeq: string, currency: 'KRW' | 'USD') =>
+    getBuyingPower(db, accountSeq, currency),
+  );
+
+  handle(IPC_CHANNELS.ORDER_INFO_SELLABLE_QUANTITY, (_event, accountSeq: string, symbol: string) =>
+    getSellableQuantity(db, accountSeq, symbol),
+  );
+
   handle(IPC_CHANNELS.WATCHLIST_LIST, () => listWatchlist(db));
 
   handle(IPC_CHANNELS.WATCHLIST_ADD, (_event, input: AddToWatchlistInput) => addToWatchlist(db, input));
@@ -185,6 +200,16 @@ export function registerIpcHandlers(
     await saveTossApiCredentials(db, clientId, clientSecret);
   });
 
+  // 매매지원(호가창에서 실제 매매 API 연동) 스위치. 기본값은 비활성 — 1차는 읽기 전용 알림
+  // 앱이고, 이 플래그는 추후 호가창에서 실제 주문 API를 호출할지 여부를 게이팅하기 위한 것이다.
+  handle(IPC_CHANNELS.SETTINGS_TRADING_SUPPORT_STATUS, async () => ({
+    enabled: (await getSetting(db, SETTINGS_KEY_TRADING_SUPPORT_ENABLED)) === '1',
+  }));
+
+  handle(IPC_CHANNELS.SETTINGS_SET_TRADING_SUPPORT, async (_event, enabled: boolean) => {
+    await setSetting(db, SETTINGS_KEY_TRADING_SUPPORT_ENABLED, enabled ? '1' : '0');
+  });
+
   // 자격증명이 새로 저장되면 전략엔진/시세 WS 클라이언트를 깨끗하게 다시 초기화해야 하는데, 이
   // 프로젝트는 아직 그 둘을 무중단으로 재시작하는 경로가 없다 — 앱을 통째로 재시작해 main.ts의
   // 부팅 로직이 새 자격증명으로 처음부터 다시 돌게 한다.
@@ -193,32 +218,47 @@ export function registerIpcHandlers(
     app.exit();
   });
 
-  // 여러 창(대시보드/시세 화면/차트 팝업)이 각자 자기 몫의 구독을 선언하는데, wsClient.setSymbols는
-  // full-replace라 그냥 그대로 넘기면 나중에 도착한 창의 선언이 앞서 도착한 다른 창의 구독을
-  // 지워버린다 — 창(sender)별로 최근 선언을 따로 들고 있다가 합쳐서 넘긴다.
-  const subscriptionsBySender = new Map<number, WsSymbolRef[]>();
-  const trackedSenderIds = new Set<number>();
+  // 여러 창(대시보드/시세 화면/차트/호가창 팝업)이 각자 자기 몫의 구독을 선언하는데,
+  // wsClient.setSymbols/setOrderbookSymbols는 full-replace라 그냥 그대로 넘기면 나중에
+  // 도착한 창의 선언이 앞서 도착한 다른 창의 구독을 지워버린다 — 창(sender)별로 최근 선언을
+  // 따로 들고 있다가 합쳐서 넘긴다. trade/orderbook 채널 둘 다 같은 방식이 필요해 공용화한다.
+  function registerSymbolSubscriptionChannel(
+    channel: string,
+    setSymbols: (symbols: WsSymbolRef[]) => void,
+  ): void {
+    const subscriptionsBySender = new Map<number, WsSymbolRef[]>();
+    const trackedSenderIds = new Set<number>();
 
-  function pushMergedSubscription(): void {
-    const merged = new Map<string, WsSymbolRef>();
-    for (const refs of subscriptionsBySender.values()) {
-      for (const ref of refs) merged.set(ref.symbol, ref);
+    function pushMerged(): void {
+      const merged = new Map<string, WsSymbolRef>();
+      for (const refs of subscriptionsBySender.values()) {
+        for (const ref of refs) merged.set(ref.symbol, ref);
+      }
+      setSymbols([...merged.values()]);
     }
-    wsClient?.setSymbols([...merged.values()]);
+
+    ipcMain.on(channel, (event, symbols: WsSymbolRef[]) => {
+      subscriptionsBySender.set(event.sender.id, symbols);
+      if (!trackedSenderIds.has(event.sender.id)) {
+        trackedSenderIds.add(event.sender.id);
+        event.sender.once('destroyed', () => {
+          subscriptionsBySender.delete(event.sender.id);
+          trackedSenderIds.delete(event.sender.id);
+          pushMerged();
+        });
+      }
+      pushMerged();
+    });
   }
 
-  ipcMain.on(IPC_CHANNELS.MARKET_SUBSCRIBE, (event, symbols: WsSymbolRef[]) => {
-    subscriptionsBySender.set(event.sender.id, symbols);
-    if (!trackedSenderIds.has(event.sender.id)) {
-      trackedSenderIds.add(event.sender.id);
-      event.sender.once('destroyed', () => {
-        subscriptionsBySender.delete(event.sender.id);
-        trackedSenderIds.delete(event.sender.id);
-        pushMergedSubscription();
-      });
-    }
-    pushMergedSubscription();
-  });
+  if (wsClient) {
+    registerSymbolSubscriptionChannel(IPC_CHANNELS.MARKET_SUBSCRIBE, (symbols) =>
+      wsClient.setSymbols(symbols),
+    );
+    registerSymbolSubscriptionChannel(IPC_CHANNELS.MARKET_SUBSCRIBE_ORDERBOOK, (symbols) =>
+      wsClient.setOrderbookSymbols(symbols),
+    );
+  }
 
   ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_CHART, (_event, stock: ChartWindowStock) => {
     openChartWindow?.(stock);
@@ -226,6 +266,10 @@ export function registerIpcHandlers(
 
   ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_DAILY_PRICES, (_event, stock: ChartWindowStock) => {
     openDailyPricesWindow?.(stock);
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_ORDERBOOK, (_event, stock: ChartWindowStock) => {
+    openOrderbookWindow?.(stock);
   });
 
   if (wsClient) {
@@ -241,14 +285,27 @@ export function registerIpcHandlers(
       latestTicksBySymbol.set(tick.symbol, { ...tick, volume });
     });
 
+    // 호가(orderbook) 프레임은 체결과 달리 매번 전체 잔량 스냅샷이라 합산이 필요 없다 —
+    // flush 주기 안에 여러 번 와도 최신 것만 보내면 된다.
+    const latestOrderbookTicksBySymbol = new Map<string, OrderbookTick>();
+    wsClient.onOrderbookTick((tick) => {
+      latestOrderbookTicksBySymbol.set(tick.symbol, tick);
+    });
+
     setInterval(() => {
-      if (latestTicksBySymbol.size === 0) return;
-      const ticks = [...latestTicksBySymbol.values()];
+      const ticks = latestTicksBySymbol.size > 0 ? [...latestTicksBySymbol.values()] : null;
       latestTicksBySymbol.clear();
+      const orderbookTicks =
+        latestOrderbookTicksBySymbol.size > 0 ? [...latestOrderbookTicksBySymbol.values()] : null;
+      latestOrderbookTicksBySymbol.clear();
+      if (!ticks && !orderbookTicks) return;
 
       for (const win of BrowserWindow.getAllWindows()) {
-        for (const tick of ticks) {
+        for (const tick of ticks ?? []) {
           win.webContents.send(IPC_CHANNELS.MARKET_TICK_EVENT, tick);
+        }
+        for (const tick of orderbookTicks ?? []) {
+          win.webContents.send(IPC_CHANNELS.MARKET_ORDERBOOK_TICK_EVENT, tick);
         }
       }
     }, TICK_FLUSH_INTERVAL_MS);

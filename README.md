@@ -41,6 +41,9 @@
 
 ## 기술 스택 & 패키지 구성
 
+> 🤖 이 프로젝트는 초기 설계를 제외한 대부분의 코드를 [Claude Code](https://claude.com/claude-code)로 작성했습니다.
+> 클로드가 해결하지 못한 이슈는 크게 다섯 가지였고, 그 부분만 직접 수정·구현했습니다.
+
 Electron(데스크톱 셸) 위에 Next.js(화면) 를 얹은 [Nextron](https://github.com/saltyshiomix/nextron)
 구조입니다. `main/`(Node.js, Electron 메인 프로세스)와 `renderer/`(Next.js, 순수 UI)가 IPC로만
 통신하고, 서로의 런타임 코드를 직접 import하지 않습니다.
@@ -145,6 +148,12 @@ npm run lint     # ESLint
 npm run format   # Prettier
 ```
 
+## Contributing
+
+피드백을 환영합니다. 제안·버그 제보:
+
+- 이메일 [tom@xingxing.kr](mailto:tom@xingxing.kr)
+
 ## 라이선스
 
-개인용 프로젝트입니다.
+MIT

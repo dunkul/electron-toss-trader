@@ -60,6 +60,25 @@ false`) — the renderer never imports main-process code at runtime, only types.
   `window.ipc` directly. Push events (main → renderer, e.g. `strategy:signal`) go through
   `webContents.send` in `main/notify/notifier.ts` and are subscribed to via `onStrategySignal()`.
 
+### Toss Open API reference docs (`docs/`)
+
+Local, downloaded copies of Toss's Open API docs live in `docs/` — check these before the live docs
+site when touching `main/toss-api/`: `docs/overview.md` (prose summary of the six API categories —
+Auth, Market Data, Account/Asset, Order, Conditional Order, WebSocket), `docs/openapi.json` (REST
+OpenAPI spec — already the source of truth cited inline for response shapes/enum values, e.g.
+`endpoints/market.ts`'s `CANDLE_INTERVALS` comment and the `OrderModifyRequest` TODO in
+`TradingPanel.tsx`'s `ModifyOrderSheet`), and `docs/asyncapi.json` (WebSocket AsyncAPI spec — same role
+for `ws-client.ts`, whose header comment cites this file). `docs/CHART.md` is scoped to the candlestick
+chart feature roadmap only, not the API surface — see `docs/PLAN.md` for where it's cross-referenced.
+
+These are point-in-time snapshots (downloaded 2026-08-30), not a live mirror — Toss can revise the specs
+without notice. `https://developers.tossinvest.com/llms.txt` is Toss's own index of current doc URLs;
+re-fetch it before trusting a local snapshot on anything load-bearing (a status code, an enum, a field
+shape) or if behavior stops matching what a local file says. As of the last check it listed:
+`openapi-docs/latest/openapi.json` (REST, canonical — "always the source of truth" per the index itself),
+`openapi-docs/latest/asyncapi.json` (WebSocket), `openapi-docs/overview.md` (this overview), and an
+`openapi-docs/latest/api-reference/README.md` (OpenAPI as Markdown) that has no local copy here yet.
+
 ### Toss API client (`main/toss-api/`)
 
 - `token-manager.ts` — OAuth2 client-credentials token fetch/cache in SQLite (`oauth_tokens` table),

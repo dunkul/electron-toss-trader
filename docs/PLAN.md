@@ -70,6 +70,13 @@
 > `/orders/{id}/modify|cancel`, 수량 지정만) 와 **주문 이력 조회**(`GET /orders`, OPEN/CLOSED)도
 > 사용한다. 조건주문(`/conditional-orders`)만 2차 개발을 위해 문서화해두고 지금은 호출하지 않는다
 > (레이트리미터에도 등록하지 않음).
+>
+> 아래 절의 근거가 되는 원본 문서는 `docs/`에 로컬로 받아뒀다 — REST는 `docs/openapi.json`(OpenAPI
+> 스펙), 웹소켓은 `docs/asyncapi.json`(AsyncAPI 스펙), 전체 카테고리 개요는 `docs/overview.md`.
+> 이 섹션과 실제 스펙이 어긋나면 로컬 스펙 파일 쪽을 신뢰할 것. 단, 이 파일들은 2026-08-30 시점
+> 스냅샷이라 토스 쪽에서 예고 없이 개정될 수 있다 — `https://developers.tossinvest.com/llms.txt`가
+> 토스가 직접 관리하는 최신 문서 경로 인덱스이므로, 로컬 스냅샷과 실제 동작이 어긋나 보이면 이걸
+> 먼저 다시 조회해서 최신 경로/버전으로 다시 받을 것.
 
 ### 3.1 인증 (OAuth 2.0 Client Credentials)
 

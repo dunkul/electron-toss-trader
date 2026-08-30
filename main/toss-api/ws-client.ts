@@ -6,7 +6,7 @@ import { getTossWsUrl } from './config';
 import { getAccessToken } from './token-manager';
 import type { OrderbookEntry } from './endpoints/market';
 
-// 스펙 출처: https://openapi.tossinvest.com/openapi-docs/latest/asyncapi.json
+// 스펙 출처: docs/asyncapi.json (로컬 사본, 원본: https://openapi.tossinvest.com/openapi-docs/latest/asyncapi.json)
 // (60초 간격 PING 권장, 180초간 클라이언트 발신이 없으면 서버가 연결 종료)
 const PING_INTERVAL_MS = 60_000;
 const DECLARE_DEBOUNCE_MS = 300;

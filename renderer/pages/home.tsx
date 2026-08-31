@@ -15,6 +15,21 @@ import { MARKET_OPTIONS } from '../lib/options';
 import { TABLE_HEADER_HEIGHT_SM, useMeasuredHeight } from '../hooks/useMeasuredHeight';
 import type { AccountSummary, Holding, HoldingsSummary, Market, TossExchange } from '../lib/ipc';
 
+const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 30_000;
+// chart-indicators.ts의 KST_OFFSET_SECONDS와 같은 방식 — Toss API 타임스탬프가 아니라 "지금"을
+// 다루는 것뿐, 사용자 OS 타임존과 무관하게 KST 벽시계 기준으로 판단해야 하므로 UTC epoch에 9시간을
+// 더한 뒤 UTC 게터로 읽는다(한국은 DST가 없어 고정 오프셋으로 충분하다).
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+// 국내 증시가 열려 있을 가능성이 있는 평일 08~20시(KST)에만 자동 새로고침한다 — 장 시간 외에는
+// 어차피 시세가 안 움직이니 폴링할 이유가 없다.
+function isDashboardAutoRefreshWindow(): boolean {
+  const kst = new Date(Date.now() + KST_OFFSET_MS);
+  const day = kst.getUTCDay(); // 0=일 ... 6=토
+  const hour = kst.getUTCHours();
+  return day >= 1 && day <= 5 && hour >= 8 && hour < 20;
+}
+
 export default function HomePage() {
   const { notification, message } = App.useApp();
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +106,15 @@ export default function HomePage() {
     });
     return unsubscribe;
   }, [loadDashboard, notification]);
+
+  // 새로고침 버튼과 동일한 동작(보유 종목/랭킹/지수 배너)을 국내장이 열려 있을 평일 08~20시(KST)
+  // 동안 30초마다 자동으로 수행한다.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (isDashboardAutoRefreshWindow()) handleHoldingsRefreshClick();
+    }, DASHBOARD_AUTO_REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [handleHoldingsRefreshClick]);
 
   const holdings = holdingsSummary?.items ?? [];
 

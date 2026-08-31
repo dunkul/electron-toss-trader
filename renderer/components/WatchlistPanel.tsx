@@ -374,6 +374,17 @@ export default function WatchlistPanel() {
     [groups, handleDeleteGroup],
   );
 
+  const handleOpenDailyPrices = useCallback(
+    (stock: { symbol: string; name: string; market: TossExchange | undefined }) => {
+      if (!stock.market) {
+        message.error(stockCacheMissError('일별시세를 열 수 없습니다'));
+        return;
+      }
+      api.openDailyPricesWindow({ symbol: stock.symbol, name: stock.name, market: stock.market });
+    },
+    [message],
+  );
+
   const handleOpenOrderbook = useCallback(
     (stock: { symbol: string; name: string; market: TossExchange | undefined }) => {
       if (!stock.market) {
@@ -385,11 +396,12 @@ export default function WatchlistPanel() {
     [message],
   );
 
-  const orderbookMenuItems = (stock: {
+  const stockContextMenuItems = (stock: {
     symbol: string;
     name: string;
     market: TossExchange | undefined;
   }): MenuProps['items'] => [
+    { key: 'dailyPrices', label: '일별시세', onClick: () => handleOpenDailyPrices(stock) },
     { key: 'orderbook', label: '호가창으로 보기', onClick: () => handleOpenOrderbook(stock) },
   ];
 
@@ -454,7 +466,7 @@ export default function WatchlistPanel() {
                         title: '종목',
                         key: 'symbol',
                         render: (_value, record) => (
-                          <Dropdown trigger={['contextMenu']} menu={{ items: orderbookMenuItems(record) }}>
+                          <Dropdown trigger={['contextMenu']} menu={{ items: stockContextMenuItems(record) }}>
                             <a
                               onClick={() => {
                                 if (!record.market) {
@@ -522,7 +534,7 @@ export default function WatchlistPanel() {
                   handleSelectFromSearch={handleSelectFromSearch}
                   handleRemove={handleRemove}
                   reorderGroup={reorderGroup}
-                  orderbookMenuItems={orderbookMenuItems}
+                  stockContextMenuItems={stockContextMenuItems}
                 />
               ),
             })),
@@ -582,7 +594,7 @@ interface WatchlistGroupPaneProps {
   handleSelectFromSearch: (stock: StockRow, groupId: number) => void;
   handleRemove: (groupId: number, symbol: string) => void;
   reorderGroup: (groupId: number, draggedSymbol: string, targetSymbol: string) => void;
-  orderbookMenuItems: (stock: {
+  stockContextMenuItems: (stock: {
     symbol: string;
     name: string;
     market: TossExchange | undefined;
@@ -629,7 +641,7 @@ const WatchlistGroupPane = memo(function WatchlistGroupPane({
   handleSelectFromSearch,
   handleRemove,
   reorderGroup,
-  orderbookMenuItems,
+  stockContextMenuItems,
 }: WatchlistGroupPaneProps) {
   const [tableWrapRef, tableWrapHeight] = useMeasuredHeight<HTMLDivElement>();
 
@@ -691,7 +703,7 @@ const WatchlistGroupPane = memo(function WatchlistGroupPane({
               title: '종목',
               key: 'symbol',
               render: (_value, record) => (
-                <Dropdown trigger={['contextMenu']} menu={{ items: orderbookMenuItems(record) }}>
+                <Dropdown trigger={['contextMenu']} menu={{ items: stockContextMenuItems(record) }}>
                   <a onClick={() => loadSymbol(record)}>
                     <StockCell name={record.name} symbol={record.symbol} market={record.market} />
                   </a>

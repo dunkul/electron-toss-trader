@@ -112,7 +112,10 @@ export async function cancelOrder(
     db,
     API_GROUPS.ORDER,
     TOSS_API_PATHS.ORDER_CANCEL(orderId),
-    { accountSeq, method: 'POST' },
+    // body가 없으면 tossRequest가 Content-Type 헤더 자체를 안 붙이는데(http-client.ts), Toss
+    // API는 이 엔드포인트도 application/json Content-Type을 요구한다(OpenAPI 스펙 예시가 빈
+    // 객체 {}) — 그래서 빈 객체라도 명시적으로 body로 보낸다.
+    { accountSeq, method: 'POST', body: {} },
   );
   return response.result;
 }

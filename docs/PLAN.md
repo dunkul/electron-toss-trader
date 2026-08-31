@@ -1,6 +1,6 @@
 # 토스증권 매매 시그널 알림 프로그램 개발 기획서
 
-> 작성일: 2026-08-27
+> 작성일: 2026-08-27 (최종 갱신: 2026-08-31)
 > 프로젝트: toss-trader (Nextron: Electron + Next.js)
 
 ---
@@ -13,8 +13,8 @@
 
 **사용자가 수립한 전략 조건이 충족되는 시점을 감지해 알림으로 알려주는 것**이 핵심 목표.
 
-1. 계좌/보유종목/시세를 조회하는 대시보드 (참고용, 조회 전용) — 계좌·전략·알림 현황 요약, 보유 종목
-   테이블, 종목 랭킹 카드
+1. 계좌/보유종목/시세를 조회하는 대시보드 (참고용, 조회 전용) — 지수(코스피/코스닥/환율) 배너,
+   보유 종목 테이블, 종목 랭킹 카드
 2. 관심종목(워치리스트) 관리 및 실시간 시세/캔들차트 조회
 3. 사용자가 정의한 전략(조건) 등록/관리 화면
 4. 전략 엔진이 시세를 주기적으로 평가 → 조건 충족 시 **알림(데스크톱 알림 + 인앱 알림)** 발생
@@ -45,7 +45,7 @@
 | DB                 | SQLite, Node 내장 `node:sqlite`(`DatabaseSync`)                                | 별도 네이티브 바인딩(better-sqlite3 등) 없이 Node 표준 모듈만 사용 — 배포 시 네이티브 모듈 재빌드 이슈를 피함                                                       |
 | 쿼리 빌더          | Kysely                                                                         | `node:sqlite` 위에 얹는 타입 안전 쿼리 빌더. `main/db/schema.ts`의 `Database` 인터페이스가 유일한 스키마 소스                                                       |
 | 마이그레이션       | 자체 러너 (`main/db/migrations.ts` + `schema_migrations` 버전 테이블)          | 버전별 `{version, name, sql}` 배열을 트랜잭션으로 순서대로 적용. 이미 적용된 버전의 SQL은 수정하지 않고 새 버전을 추가                                              |
-| 상태관리(renderer) | 컴포넌트 로컬 state                                                            | 화면별 상태는 각 페이지 컴포넌트가 관리하고, main의 데이터는 `renderer/lib/ipc.ts`의 `api.*` 호출로 그때그때 가져온다 — 화면 수가 많지 않아 전역 스토어 없이도 충분 |
+| 상태관리(renderer) | 컴포넌트 로컬 state + Zustand(`renderer/store/`)                              | 화면별 상태는 각 페이지 컴포넌트가 관리하고, main의 데이터는 `renderer/lib/ipc.ts`의 `api.*` 호출로 그때그때 가져온다. 여러 창/컴포넌트가 공유해야 하는 최소한의 상태(현재 선택된 종목 등)만 Zustand 스토어(`useSelectedStockStore`)로 뺐다 |
 | UI                 | Ant Design (antd)                                                              | 데이터 테이블/폼이 많은 화면에 적합, 기본 컴포넌트 풍부                                                                                                             |
 | 스타일링           | SCSS (`renderer/styles/globals.scss`) + antd `ConfigProvider` 테마 토큰        | 브랜드 톤(포인트 컬러 등)은 테마 토큰으로, 스크롤바 커스터마이징 등 앱 전역 룩은 전역 스타일시트 한 곳에서 관리                                                     |
 | 코드 품질          | ESLint (`typescript-eslint` + `eslint-config-next` + `react-hooks`) + Prettier | 포맷팅은 Prettier, 버그성 규칙(Hooks 의존성, 미사용 변수 등)은 ESLint로 역할 분리                                                                                   |
@@ -128,6 +128,19 @@
 - `GET /api/v1/prices` 현재가, `/candles` 캔들(OHLCV)
 - `GET /api/v1/stocks/all` 시장별 전체 종목 마스터(일 1회 동기화 → 로컬 `stocks` 캐시, 종목 검색/자동완성에 사용)
 - `GET /api/v1/rankings` 거래대금/거래량/상승률/하락률 등 랭킹 (대시보드 랭킹 카드에서 사용)
+- `GET /api/v1/orderbook` 호가 스냅샷 — 호가창 팝업이 뜰 때 REST로 1회 조회하고, 이후 갱신은 WS
+  `orderbook` 채널 push로 받는다(§3.3 WebSocket 절 참고)
+- → OAuth 토큰만 있으면 호출 가능 (계좌 불필요)
+
+**지수/환율/장운영 (대시보드 상단 배너용, `MARKET_INDICATOR_PRICE`/`MARKET_INDICATOR_CHART`/`MARKET_INFO` 그룹)**
+
+- `GET /market-indicators/prices` 코스피/코스닥 등 지수 현재가, `/market-indicators/{symbol}/candles`
+  캔들(코스피/코스닥은 1분봉도 지원, 국채는 일봉만) — `MarketIndicatorBar.tsx`가 60초마다 자동
+  재조회해 대시보드 최상단 배너(코스피/코스닥 스파크라인 + 원-달러 환율)를 그린다
+- `GET /market-info/exchange-rates` 원-달러 환율(1분 주기 갱신, 참고용 표시 환율)
+- `GET /market-info/kr-market-calendar` 국내 장 운영 시간(정규장 시작/종료 등) — 배너의 "실시간/
+  장마감" 배지 판정에 사용. 지수/국채 8개 심볼만 지원하며, 미국 3대 지수(S&P 500·나스닥·다우존스)는
+  Market Indicators 그룹 자체가 지원하지 않아 배너에 없다
 - → OAuth 토큰만 있으면 호출 가능 (계좌 불필요)
 
 **계좌/자산 (조회 전용, 대시보드용)**
@@ -149,7 +162,9 @@
   반영: **KR은 가격+수량(수량 필수·정수)**, **US는 가격만**(수량 전달 시 거부) — 바텀시트가 통화에
   따라 수량 입력란 자체를 숨긴다. `confirmHighValueOrder`도 생성과 동일한 재확인 흐름
 - `POST /orders/{id}/cancel` — "대기" 탭 각 행의 **취소** 버튼 → `Modal.confirm` 재확인 후 호출.
-  본문 없이 호출(스펙상 body 불필요)
+  스펙상 body는 optional이지만 빈 객체(`{}`)라도 명시적으로 보내야 한다 — body가 아예 없으면
+  `tossRequest`가 `Content-Type` 헤더 자체를 안 붙여서 API가 "지원하지 않는 Content-Type" 오류로
+  거부한다(한 번 실제로 겪은 버그, `orders.ts`의 `cancelOrder` 참고)
 - `/commissions` — 아직 미사용
 - `POST/GET/DELETE /api/v1/conditional-orders` (SINGLE/OCO/OTO) — 아직 미사용(2차)
 - 1억원 이상 주문 시 `confirmHighValueOrder: true` 필수 — 생성/정정 모두 `confirm-high-value-required`
@@ -344,15 +359,23 @@ Nextron의 `renderer/pages` 기준, 사이드바(LNB) + 콘텐츠 레이아웃. 
  └─ 설정
 ```
 
+> 차트/일별시세/호가창 팝업(`chart-window.tsx`/`daily-prices-window.tsx`/`orderbook-window.tsx`)은
+> 메인 창에 가까이 끌어다 놓으면 자석처럼 달라붙어(도킹) 메인 창을 움직이거나 크기를 바꿀 때 같이
+> 따라온다(`main/helpers/window-snap.ts`). 도킹은 팝업 → 메인 방향 한쪽으로만 걸리고, 메인 창은
+> 팝업이 붙어 있어도 스스로 위치를 바꾸지 않는다.
+
 ### 6.1 대시보드 (`/home`)
 
-- 상단 요약 카드 4개: 등록 계좌 수, 감시 중인 전략 수(활성/전체), 최근 알림 건수, 보유종목
-  평가손익(원화 환산 보유분 + 등락률)
+- 상단 지수 배너(`MarketIndicatorBar.tsx`): 코스피/코스닥(스파크라인 포함)·원-달러 환율 카드 3개.
+  자체적으로 60초마다 자동 재조회하고, 국내 정규장 운영 중이면 "실시간", 아니면 "장마감" 배지를
+  표시한다(`GET /market-info/kr-market-calendar` 기준)
 - 보유 종목 카드: 국내/해외 세그먼트 전환, 종목별 수량·현재가(당일 등락 포함)·평가손익을 색상과
-  함께 표시. `GET /api/v1/holdings` 응답을 그대로 사용하며, 새로고침 버튼으로 다시 조회한다(항상
-  WebSocket으로 갱신되는 건 아니고, 계좌 API 응답 시점 기준)
-- 종목 랭킹 카드: 거래대금/거래량/상승률/하락률 등 여러 랭킹 타입과 기간을 선택해서 볼 수 있고,
-  보유 종목 새로고침과 같이 눌리는 새로고침 버튼을 공유한다
+  함께 표시. `GET /api/v1/holdings` 응답을 그대로 사용한다
+- 종목 랭킹 카드: 거래대금/거래량/상승률/하락률 등 여러 랭킹 타입과 기간을 선택해서 볼 수 있다
+- 새로고침 버튼(보유 종목 카드 쪽)을 누르면 보유 종목·랭킹·지수 배너 셋 다 함께 다시 조회한다.
+  국내장이 열려 있을 평일 08:00~20:00(KST, 사용자 OS 타임존과 무관하게 고정 오프셋으로 판정)
+  동안은 이 새로고침 버튼과 동일한 동작을 30초마다 자동으로도 수행한다(`home.tsx`의
+  `isDashboardAutoRefreshWindow`) — 장 시간 외에는 어차피 시세가 안 움직이니 폴링하지 않는다
 - 전략 신호가 발생하면(`strategy:signal` IPC push) 화면 어디에 있든 인앱 토스트 알림을 띄우고,
   대시보드 데이터를 다시 불러온다
 
@@ -486,27 +509,39 @@ Nextron의 `renderer/pages` 기준, 사이드바(LNB) + 콘텐츠 레이아웃. 
 한다. `main/ipc/register.ts`가 각 채널을 `ipcMain.handle`로 연결하고, 대부분 `main/db/
 repositories/*.ts` 함수나 `main/toss-api/endpoints/*.ts` 호출로 그대로 위임한다.
 
-| 채널 그룹            | 방향              | 설명                                                        |
-| -------------------- | ----------------- | ----------------------------------------------------------- |
-| `accounts:*`         | invoke            | 계좌 목록, 보유종목 조회                                    |
-| `strategy:*`         | invoke            | 전략 목록/생성/수정/토글/삭제                               |
-| `signals:list`       | invoke            | 신호(알림) 이력 조회                                        |
-| `logs:list`          | invoke            | 시스템 로그 조회                                            |
-| `stocks:*`           | invoke            | 종목 검색, 캐시 상태 조회, 수동 재동기화, 심볼로 일괄 조회  |
-| `market:prices`      | invoke            | 현재가 조회                                                 |
-| `market:candles`     | invoke            | 캔들(OHLCV) 조회                                            |
-| `watchlist*`         | invoke            | 관심종목/관심종목 그룹 CRUD·순서변경                        |
-| `ranking:list`       | invoke            | 랭킹 조회                                                   |
-| `notifications:test` | invoke            | 테스트 알림 발송(설정 화면용)                               |
-| `orderInfo:*`        | invoke            | 매수가능금액/매도가능수량 조회(매매지원 패널용)             |
-| `orders:create`      | invoke            | 주문 생성(`POST /orders`) — 고액주문 재확인은 예외로 던지지 않고 결과값(`{ok:false,...}`)으로 반환 |
-| `orders:listHistory` | invoke            | 주문 이력 조회(`GET /orders`) — 매매지원 패널 "대기"(OPEN)/"완료"(CLOSED) 탭용 |
-| `orders:modify`      | invoke            | 주문 정정(`POST /orders/{id}/modify`) — 고액주문 재확인은 생성과 동일하게 결과값으로 반환 |
-| `orders:cancel`      | invoke            | 주문 취소(`POST /orders/{id}/cancel`)                                        |
-| `market:subscribe`   | send(응답 없음)   | 실시간 구독할 심볼 전체 목록을 매번 새로 선언(full-replace) |
-| `market:tick`        | on(main→renderer) | 실시간 시세 push                                            |
-| `strategy:signal`    | on(main→renderer) | 신호 발생 push (토스트/알림 트리거)                         |
-| `order:fill`         | on(main→renderer) | 본인 계좌 주문 체결(전량/부분) push (토스트/알림 트리거)    |
+| 채널 그룹                         | 방향              | 설명                                                        |
+| ---------------------------------- | ----------------- | ----------------------------------------------------------- |
+| `accounts:*`                      | invoke            | 계좌 목록, 보유종목 조회                                    |
+| `strategy:*`                      | invoke            | 전략 목록/생성/수정/토글/삭제                               |
+| `signals:list`                    | invoke            | 신호(알림) 이력 조회                                        |
+| `logs:list`                       | invoke            | 시스템 로그 조회                                            |
+| `stocks:search`/`status`/`refresh`/`getBySymbols` | invoke | 종목 검색, 캐시 상태 조회, 수동 재동기화, 심볼로 일괄 조회  |
+| `stocks:investorTrading`          | invoke            | 종목별 투자자별 매매동향(수급) 조회                         |
+| `market:prices`                   | invoke            | 현재가 조회                                                 |
+| `market:candles`                  | invoke            | 캔들(OHLCV) 조회                                            |
+| `market:indicatorPrices`/`indicatorCandles` | invoke   | 지수(코스피/코스닥)·국채 현재가/캔들 조회(대시보드 지수 배너용) |
+| `market:exchangeRate`             | invoke            | 원-달러 환율 조회(대시보드 지수 배너용)                     |
+| `market:calendarKr`               | invoke            | 국내 장 운영 시간(정규장 시작/종료 등) 조회                 |
+| `market:orderbook`                | invoke            | 호가 스냅샷 최초 1회 조회(호가창 팝업이 뜰 때)              |
+| `watchlist*`                      | invoke            | 관심종목/관심종목 그룹 CRUD·순서변경                        |
+| `ranking:list`                    | invoke            | 랭킹 조회                                                   |
+| `notifications:test`              | invoke            | 테스트 알림 발송(설정 화면용)                               |
+| `orderInfo:buyingPower`/`sellableQuantity` | invoke   | 매수가능금액/매도가능수량 조회(매매지원 패널용)             |
+| `orders:create`                   | invoke            | 주문 생성(`POST /orders`) — 고액주문 재확인은 예외로 던지지 않고 결과값(`{ok:false,...}`)으로 반환 |
+| `orders:listHistory`              | invoke            | 주문 이력 조회(`GET /orders`) — 매매지원 패널 "대기"(OPEN)/"완료"(CLOSED) 탭용 |
+| `orders:modify`                   | invoke            | 주문 정정(`POST /orders/{id}/modify`) — 고액주문 재확인은 생성과 동일하게 결과값으로 반환 |
+| `orders:cancel`                   | invoke            | 주문 취소(`POST /orders/{id}/cancel`)                       |
+| `settings:credentialsStatus`/`saveCredentials` | invoke | Open API 자격증명 등록 상태 조회 / 연결 테스트 후 암호화 저장 |
+| `settings:tradingSupportStatus`/`setTradingSupport` | invoke | 매매지원 on/off 상태 조회/변경                        |
+| `market:subscribe`                | send(응답 없음)   | 실시간 시세 구독할 심볼 전체 목록을 매번 새로 선언(full-replace) |
+| `market:subscribeOrderbook`       | send(응답 없음)   | 호가창 팝업이 실시간 호가를 구독할 종목을 선언(full-replace) |
+| `window:openChart`/`openDailyPrices`/`openOrderbook` | send(응답 없음) | 종목 차트/일별시세/호가창을 별도 팝업 창으로 띄운다 |
+| `app:relaunch`                    | send(응답 없음)   | 자격증명 저장 후 전략엔진/WS 클라이언트를 새 값으로 다시 띄우기 위해 앱 재시작 |
+| `market:tick`                     | on(main→renderer) | 실시간 시세 push                                            |
+| `market:orderbookTick`            | on(main→renderer) | 실시간 호가 push(호가창 팝업 구독 중인 종목만)              |
+| `strategy:signal`                 | on(main→renderer) | 신호 발생 push (토스트/알림 트리거)                         |
+| `order:fill`                      | on(main→renderer) | 본인 계좌 주문 체결(전량/부분) push (토스트/알림 트리거)    |
+| `window:chartUpdate`/`dailyPricesUpdate`/`orderbookUpdate` | on(main→renderer) | 이미 떠 있는 팝업 창에 다른 종목을 새로 보여주라는 push |
 
 ---
 

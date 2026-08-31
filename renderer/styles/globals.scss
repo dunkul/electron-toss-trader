@@ -42,6 +42,29 @@ body.app-ready {
   animation: price-flash 1.2s ease-out forwards;
 }
 
+// 호가창 잔량 막대(OrderbookCard.tsx LadderRow의 VolumeBar) — price-flash와 달리 페이드 목적지가
+// 투명이 아니라 항상 켜져 있는 옅은 기본색(--volume-base-color)이다: 평소엔 그 옅은 색이 잔량
+// 텍스트 뒤에 깔려 있다가(막대 너비 자체는 텍스트 크기와 무관하게 잔량 비율로 JS가 계산해 인라인
+// width로 지정), 잔량이 바뀌는 순간에만 짙은 색(--volume-flash-color)에서 시작해 기본색으로
+// 다시 가라앉는다.
+@keyframes orderbook-volume-flash {
+  from {
+    background-color: var(--volume-flash-color);
+  }
+  to {
+    background-color: var(--volume-base-color);
+  }
+}
+
+.orderbook-volume-bar {
+  border-radius: 4px;
+  background-color: var(--volume-base-color);
+}
+
+.orderbook-volume-bar.orderbook-volume-flash {
+  animation: orderbook-volume-flash 1.2s ease-out forwards;
+}
+
 // market.tsx 관심종목 카드 — 탭 목록(.ant-tabs-nav)은 고정. 탭 내용 쪽은 이 자체를 스크롤시키지
 // 않고(과거에는 overflow-y:auto를 여기 줬는데, 그러면 세로 스크롤바가 내부의 고정 검색창/테이블
 // 헤더 옆으로도 그대로 지나가 버린다) 대신 순수 flex 컨테이너로만 두어, 실제 스크롤은 각 탭

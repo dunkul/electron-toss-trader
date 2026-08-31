@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import { Card, Empty, Spin, Typography } from 'antd';
 import StockCell from './StockCell';
 import QuotePriceBlock from './QuotePriceBlock';
@@ -380,7 +380,8 @@ function LadderRow({ side, level, maxVolume, referencePrice, selected, onClick }
   // — 국내 증시 호가창 관례대로 두 색상의 의미가 다르다.
   const priceColor = rate !== undefined ? profitColor(rate) : profitColors.neutral;
   const volumeColor = side === 'ask' ? profitColors.down : profitColors.up;
-  const barColor = side === 'ask' ? 'rgba(23, 101, 173, 0.12)' : 'rgba(207, 19, 34, 0.12)';
+  const volumeBaseColor = side === 'ask' ? 'rgba(23, 101, 173, 0.10)' : 'rgba(207, 19, 34, 0.08)';
+  const volumeFlashColor = side === 'ask' ? 'rgba(23, 101, 173, 0.45)' : 'rgba(207, 19, 34, 0.4)';
 
   return (
     <div
@@ -405,15 +406,12 @@ function LadderRow({ side, level, maxVolume, referencePrice, selected, onClick }
       >
         {side === 'ask' && (
           <>
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                right: 0,
-                width: `${barPct}%`,
-                background: barColor,
-              }}
+            <VolumeBar
+              volume={volume}
+              widthPct={barPct}
+              edge="right"
+              baseColor={volumeBaseColor}
+              flashColor={volumeFlashColor}
             />
             <Text style={{ position: 'relative', color: volumeColor }}>{volume.toLocaleString()}</Text>
           </>
@@ -448,20 +446,67 @@ function LadderRow({ side, level, maxVolume, referencePrice, selected, onClick }
       >
         {side === 'bid' && (
           <>
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                bottom: 0,
-                left: 0,
-                width: `${barPct}%`,
-                background: barColor,
-              }}
+            <VolumeBar
+              volume={volume}
+              widthPct={barPct}
+              edge="left"
+              baseColor={volumeBaseColor}
+              flashColor={volumeFlashColor}
             />
             <Text style={{ position: 'relative', color: volumeColor }}>{volume.toLocaleString()}</Text>
           </>
         )}
       </div>
     </div>
+  );
+}
+
+// 매도/매수 잔량 막대 — 캡처 이미지를 보면 이 막대는 잔량 텍스트의 크기와 무관하게 순수하게
+// 잔량/최대잔량 비율로만 너비가 정해진다(잔량이 적은 행은 막대가 숫자 뒷부분만 살짝 덮고, 많은
+// 행은 숫자보다 훨씬 넓게 퍼진다 — 숫자에 맞춰 막대의 최소 너비를 보장하려 하면 이 비율 표현이
+// 깨진다). 그래서 막대는 숫자 텍스트와 별개의 절대배치 요소로 두고, 숫자는 항상 같은 자리에
+// 고정 렌더링해 막대 위에 겹쳐 보이게 한다. 평소엔 옅은 기본색(--volume-base-color)이 깔려
+// 있다가, 잔량 값 자체가 바뀔 때만(가격이 아니라) 짙은 색(--volume-flash-color)에서 시작해
+// 기본색으로 가라앉는다. key를 바꿔 매번 새 DOM 노드로 렌더링해야 애니메이션 도중 다시 값이
+// 바뀌어도 처음부터 다시 반짝인다(PriceBlock와 동일한 패턴).
+function VolumeBar({
+  volume,
+  widthPct,
+  edge,
+  baseColor,
+  flashColor,
+}: {
+  volume: number;
+  widthPct: number;
+  edge: 'left' | 'right';
+  baseColor: string;
+  flashColor: string;
+}) {
+  const [flashKey, setFlashKey] = useState(0);
+  const prevVolumeRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    if (prevVolumeRef.current !== undefined && prevVolumeRef.current !== volume) {
+      setFlashKey((key) => key + 1);
+    }
+    prevVolumeRef.current = volume;
+  }, [volume]);
+
+  return (
+    <div
+      key={flashKey}
+      className={`orderbook-volume-bar${flashKey > 0 ? ' orderbook-volume-flash' : ''}`}
+      style={
+        {
+          position: 'absolute',
+          top: 2,
+          bottom: 2,
+          [edge]: 0,
+          width: `${widthPct}%`,
+          '--volume-base-color': baseColor,
+          '--volume-flash-color': flashColor,
+        } as CSSProperties
+      }
+    />
   );
 }

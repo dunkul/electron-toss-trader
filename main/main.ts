@@ -164,6 +164,18 @@ async function openDailyPricesWindow(stock: ChartWindowStock): Promise<void> {
   }
 }
 
+// 차트 등 다른 팝업에서 종목을 클릭했을 때, 일별시세 창이 이미 떠 있다면 그 창도 같은 종목으로
+// 맞춰준다. 안 떠 있으면 아무것도 하지 않는다 — 사용자가 연 적 없는 창을 이 클릭으로 새로
+// 띄우면 안 되므로(그 경우는 openDailyPricesWindow 쪽 몫이다).
+function syncDailyPricesWindowIfOpen(stock: ChartWindowStock): void {
+  if (!dailyPricesWindow || dailyPricesWindow.isDestroyed()) return;
+  if (dailyPricesWindowReady) {
+    dailyPricesWindow.webContents.send(IPC_CHANNELS.WINDOW_DAILY_PRICES_UPDATE_EVENT, stock);
+  } else {
+    pendingDailyPricesStock = stock;
+  }
+}
+
 // 차트/일별시세 팝업과 같은 구조의 호가창 팝업 창 — 최대 하나만 유지하고, 이미 떠 있으면
 // 포커스 후 표시 종목만 바꾼다.
 let orderbookWindow: BrowserWindow | null = null;
@@ -226,6 +238,16 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
   }
 }
 
+// syncDailyPricesWindowIfOpen과 같은 목적 — 호가창이 이미 떠 있을 때만 표시 종목을 맞춰준다.
+function syncOrderbookWindowIfOpen(stock: ChartWindowStock): void {
+  if (!orderbookWindow || orderbookWindow.isDestroyed()) return;
+  if (orderbookWindowReady) {
+    orderbookWindow.webContents.send(IPC_CHANNELS.WINDOW_ORDERBOOK_UPDATE_EVENT, stock);
+  } else {
+    pendingOrderbookStock = stock;
+  }
+}
+
 (async () => {
   await app.whenReady();
 
@@ -265,6 +287,8 @@ async function openOrderbookWindow(stock: ChartWindowStock): Promise<void> {
         logger.error({ err, stock }, 'failed to open orderbook window'),
       );
     },
+    (stock) => syncDailyPricesWindowIfOpen(stock),
+    (stock) => syncOrderbookWindowIfOpen(stock),
   );
 
   Menu.setApplicationMenu(null);

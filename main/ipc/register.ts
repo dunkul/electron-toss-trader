@@ -89,6 +89,8 @@ export function registerIpcHandlers(
   openChartWindow?: (stock: ChartWindowStock) => void,
   openDailyPricesWindow?: (stock: ChartWindowStock) => void,
   openOrderbookWindow?: (stock: ChartWindowStock) => void,
+  syncDailyPricesWindow?: (stock: ChartWindowStock) => void,
+  syncOrderbookWindow?: (stock: ChartWindowStock) => void,
 ): void {
   handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
@@ -327,6 +329,14 @@ export function registerIpcHandlers(
 
   ipcMain.on(IPC_CHANNELS.WINDOW_OPEN_ORDERBOOK, (_event, stock: ChartWindowStock) => {
     openOrderbookWindow?.(stock);
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_SYNC_DAILY_PRICES, (_event, stock: ChartWindowStock) => {
+    syncDailyPricesWindow?.(stock);
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_SYNC_ORDERBOOK, (_event, stock: ChartWindowStock) => {
+    syncOrderbookWindow?.(stock);
   });
 
   if (wsClient) {

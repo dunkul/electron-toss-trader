@@ -129,7 +129,10 @@ export default function HomePage() {
       message.error(stockCacheMissError('차트를 열 수 없습니다'));
       return;
     }
-    api.openChartWindow({ symbol: holding.symbol, name: holding.name, market });
+    const stock = { symbol: holding.symbol, name: holding.name, market };
+    api.openChartWindow(stock);
+    api.syncDailyPricesWindow(stock);
+    api.syncOrderbookWindow(stock);
   };
 
   const getOrderbookMenuItems = (holding: Holding): MenuProps['items'] => [

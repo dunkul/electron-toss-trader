@@ -53,6 +53,12 @@ export const IPC_CHANNELS = {
   // renderer -> main (ipcRenderer.send, 응답 없음) — 종목 호가창(+ 매매지원 활성 시 거래화면)을
   // 별도 창으로 띄운다
   WINDOW_OPEN_ORDERBOOK: 'window:openOrderbook',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 일별시세 창이 이미 떠 있을 때만 다른 종목으로
+  // 맞춰준다(안 떠 있으면 무시) — 차트 등 다른 팝업에서 종목을 클릭했을 때 같이 따라가게 하는 용도
+  WINDOW_SYNC_DAILY_PRICES: 'window:syncDailyPrices',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 호가창이 이미 떠 있을 때만 다른 종목으로
+  // 맞춰준다(안 떠 있으면 무시)
+  WINDOW_SYNC_ORDERBOOK: 'window:syncOrderbook',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 자격증명 저장 후 전략엔진/WS 클라이언트를
   // 깨끗하게 다시 초기화하기 위해 앱을 재시작한다
   APP_RELAUNCH: 'app:relaunch',

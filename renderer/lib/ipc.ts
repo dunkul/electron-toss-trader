@@ -102,6 +102,8 @@ const CHANNELS = {
   WINDOW_OPEN_CHART: 'window:openChart',
   WINDOW_OPEN_DAILY_PRICES: 'window:openDailyPrices',
   WINDOW_OPEN_ORDERBOOK: 'window:openOrderbook',
+  WINDOW_SYNC_DAILY_PRICES: 'window:syncDailyPrices',
+  WINDOW_SYNC_ORDERBOOK: 'window:syncOrderbook',
   APP_RELAUNCH: 'app:relaunch',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
@@ -267,6 +269,12 @@ export const api = {
   openDailyPricesWindow: (stock: ChartWindowStock) =>
     window.ipc.send(CHANNELS.WINDOW_OPEN_DAILY_PRICES, stock),
   openOrderbookWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_OPEN_ORDERBOOK, stock),
+  // 일별시세/호가창 팝업이 이미 떠 있을 때만 그 창의 표시 종목을 맞춰준다 — 안 떠 있으면 새로
+  // 열지 않는다. 차트 팝업을 열거나 갱신하는 클릭(홈 화면 보유종목/주식 랭킹)에서 같이 호출해
+  // 이미 떠 있는 다른 팝업들도 같은 종목을 따라가게 하는 용도.
+  syncDailyPricesWindow: (stock: ChartWindowStock) =>
+    window.ipc.send(CHANNELS.WINDOW_SYNC_DAILY_PRICES, stock),
+  syncOrderbookWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_SYNC_ORDERBOOK, stock),
 
   relaunchApp: () => window.ipc.send(CHANNELS.APP_RELAUNCH),
 };

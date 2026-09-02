@@ -105,6 +105,8 @@ const RankingCard = forwardRef<RankingCardHandle, RankingCardProps>(function Ran
         return;
       }
       api.openChartWindow(stock);
+      api.syncDailyPricesWindow(stock);
+      api.syncOrderbookWindow(stock);
     } catch {
       message.error('차트 창을 여는 데 실패했습니다.');
     }

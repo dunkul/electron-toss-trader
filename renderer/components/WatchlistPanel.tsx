@@ -216,9 +216,21 @@ export default function WatchlistPanel() {
     });
   }, []);
 
+  // select()는 ChartCard가 보여줄 종목만 바꾼다 — 이미 열려있는 호가창/일별시세 팝업 창은
+  // 별개 프로세스라 그와 무관하게 이전 종목을 계속 보여주므로, 이 페이지에서 종목이 바뀔 때마다
+  // 항상 함께 동기화해준다(RankingCard.tsx/home.tsx의 openChartWindow 클릭 시 동작과 동일한 패턴).
+  const selectStock = useCallback(
+    (stock: SelectedStock) => {
+      select(stock);
+      api.syncDailyPricesWindow(stock);
+      api.syncOrderbookWindow(stock);
+    },
+    [select],
+  );
+
   const handleSelectFromSearch = useCallback(
     async (stock: StockRow, groupId: number) => {
-      select(stock);
+      selectStock(stock);
       setQuery('');
       try {
         await api.addToWatchlist({ groupId, symbol: stock.symbol, name: stock.name, market: stock.market });
@@ -227,7 +239,7 @@ export default function WatchlistPanel() {
         message.error('관심종목 저장에 실패했습니다.');
       }
     },
-    [select, setQuery, loadWatchlist, message],
+    [selectStock, setQuery, loadWatchlist, message],
   );
 
   const handleRemove = useCallback(
@@ -281,7 +293,7 @@ export default function WatchlistPanel() {
         const first = holdingsSummary?.items[0];
         const market = first ? holdingMarkets[first.symbol] : undefined;
         if (first && market) {
-          select({ symbol: first.symbol, name: first.name, market });
+          selectStock({ symbol: first.symbol, name: first.name, market });
         } else {
           clear();
         }
@@ -292,12 +304,12 @@ export default function WatchlistPanel() {
       const groupId = Number(key);
       const first = watchlist.find((row) => row.group_id === groupId);
       if (first) {
-        select(first);
+        selectStock(first);
       } else {
         clear();
       }
     },
-    [holdingsSummary, holdingMarkets, watchlist, select, clear],
+    [holdingsSummary, holdingMarkets, watchlist, selectStock, clear],
   );
 
   // 페이지에 처음 들어왔을 때 "내 보유종목" 탭이 기본으로 활성화되어 있으니, 보유종목이 있으면
@@ -473,7 +485,7 @@ export default function WatchlistPanel() {
                                   message.error(stockCacheMissError('차트를 열 수 없습니다'));
                                   return;
                                 }
-                                select({
+                                selectStock({
                                   symbol: record.symbol,
                                   name: record.name,
                                   market: record.market,
@@ -530,7 +542,7 @@ export default function WatchlistPanel() {
                   referencePrices={referencePrices}
                   watchlistBusy={watchlistBusy}
                   dragSymbolRef={dragSymbolRef}
-                  loadSymbol={select}
+                  loadSymbol={selectStock}
                   handleSelectFromSearch={handleSelectFromSearch}
                   handleRemove={handleRemove}
                   reorderGroup={reorderGroup}

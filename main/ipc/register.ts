@@ -91,6 +91,7 @@ export function registerIpcHandlers(
   openOrderbookWindow?: (stock: ChartWindowStock) => void,
   syncDailyPricesWindow?: (stock: ChartWindowStock) => void,
   syncOrderbookWindow?: (stock: ChartWindowStock) => void,
+  closeChartWindow?: () => void,
 ): void {
   handle(IPC_CHANNELS.ACCOUNTS_LIST, () => fetchAndCacheAccounts(db));
 
@@ -337,6 +338,10 @@ export function registerIpcHandlers(
 
   ipcMain.on(IPC_CHANNELS.WINDOW_SYNC_ORDERBOOK, (_event, stock: ChartWindowStock) => {
     syncOrderbookWindow?.(stock);
+  });
+
+  ipcMain.on(IPC_CHANNELS.WINDOW_CLOSE_CHART, () => {
+    closeChartWindow?.();
   });
 
   if (wsClient) {

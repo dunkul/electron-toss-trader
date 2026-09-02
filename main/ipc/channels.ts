@@ -59,6 +59,9 @@ export const IPC_CHANNELS = {
   // renderer -> main (ipcRenderer.send, 응답 없음) — 호가창이 이미 떠 있을 때만 다른 종목으로
   // 맞춰준다(안 떠 있으면 무시)
   WINDOW_SYNC_ORDERBOOK: 'window:syncOrderbook',
+  // renderer -> main (ipcRenderer.send, 응답 없음) — 차트 팝업이 떠 있으면 닫는다(안 떠 있으면
+  // 무시) — 시세/차트 페이지처럼 페이지 안에 이미 차트가 있어 팝업이 중복일 때 쓴다
+  WINDOW_CLOSE_CHART: 'window:closeChart',
   // renderer -> main (ipcRenderer.send, 응답 없음) — 자격증명 저장 후 전략엔진/WS 클라이언트를
   // 깨끗하게 다시 초기화하기 위해 앱을 재시작한다
   APP_RELAUNCH: 'app:relaunch',

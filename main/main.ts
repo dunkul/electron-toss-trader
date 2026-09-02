@@ -248,6 +248,13 @@ function syncOrderbookWindowIfOpen(stock: ChartWindowStock): void {
   }
 }
 
+// 시세/차트 페이지는 페이지 안에 이미 차트(ChartCard)가 있어 차트 팝업이 중복이므로, 그 페이지에
+// 진입할 때 호출해 팝업이 떠 있으면 닫는다. 일별시세/호가창 팝업은 그 페이지에 없는 기능이라
+// 대상이 아니다.
+function closeChartWindowIfOpen(): void {
+  if (chartWindow && !chartWindow.isDestroyed()) chartWindow.close();
+}
+
 (async () => {
   await app.whenReady();
 
@@ -289,6 +296,7 @@ function syncOrderbookWindowIfOpen(stock: ChartWindowStock): void {
     },
     (stock) => syncDailyPricesWindowIfOpen(stock),
     (stock) => syncOrderbookWindowIfOpen(stock),
+    () => closeChartWindowIfOpen(),
   );
 
   Menu.setApplicationMenu(null);

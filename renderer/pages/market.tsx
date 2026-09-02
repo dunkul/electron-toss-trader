@@ -1,12 +1,20 @@
+import { useEffect } from 'react';
 import Head from 'next/head';
 import { Card, Col, Empty, Row } from 'antd';
 import AppLayout from '../components/AppLayout';
 import ChartCard from '../components/ChartCard';
 import WatchlistPanel from '../components/WatchlistPanel';
+import { api } from '../lib/ipc';
 import { useSelectedStockStore } from '../store/useSelectedStockStore';
 
 export default function MarketPage() {
   const selected = useSelectedStockStore((s) => s.selected);
+
+  // 이 페이지는 ChartCard로 차트를 이미 보여주므로, 대시보드 등에서 띄워둔 차트 팝업이 남아있으면
+  // 중복이라 진입 시 닫는다.
+  useEffect(() => {
+    api.closeChartWindow();
+  }, []);
 
   return (
     <AppLayout>

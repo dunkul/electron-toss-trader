@@ -104,6 +104,7 @@ const CHANNELS = {
   WINDOW_OPEN_ORDERBOOK: 'window:openOrderbook',
   WINDOW_SYNC_DAILY_PRICES: 'window:syncDailyPrices',
   WINDOW_SYNC_ORDERBOOK: 'window:syncOrderbook',
+  WINDOW_CLOSE_CHART: 'window:closeChart',
   APP_RELAUNCH: 'app:relaunch',
   STRATEGY_SIGNAL_EVENT: 'strategy:signal',
   MARKET_TICK_EVENT: 'market:tick',
@@ -275,6 +276,9 @@ export const api = {
   syncDailyPricesWindow: (stock: ChartWindowStock) =>
     window.ipc.send(CHANNELS.WINDOW_SYNC_DAILY_PRICES, stock),
   syncOrderbookWindow: (stock: ChartWindowStock) => window.ipc.send(CHANNELS.WINDOW_SYNC_ORDERBOOK, stock),
+  // 차트 팝업이 떠 있으면 닫는다 — 시세/차트 페이지는 페이지 안에 이미 차트가 있어 팝업이 중복이므로,
+  // 그 페이지로 진입할 때 호출한다. 안 떠 있으면 아무 일도 하지 않는다.
+  closeChartWindow: () => window.ipc.send(CHANNELS.WINDOW_CLOSE_CHART),
 
   relaunchApp: () => window.ipc.send(CHANNELS.APP_RELAUNCH),
 };

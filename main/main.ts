@@ -23,7 +23,7 @@ import { TossMarketWsClient } from './toss-api/ws-client';
 // Windows는 알림(Notification)에 앱 이름/아이콘을 표시하려면 AppUserModelID가 필요하다 — 없으면
 // 토스트에 실행 파일 이름(Electron)이 그대로 뜬다. electron-builder.yml의 appId와 값을 맞춘다.
 if (process.platform === 'win32') {
-  app.setAppUserModelId('kr.xingxing.tosstrader');
+  app.setAppUserModelId('kr.xingxing.toss-trader');
 }
 
 const isProd = process.env.NODE_ENV === 'production';

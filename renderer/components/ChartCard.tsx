@@ -312,7 +312,10 @@ export default function ChartCard({ stock }: ChartCardProps) {
   }, []);
 
   // candlesDesc: API가 내려주는 그대로(최신순) 캔들 목록. 차트에 넣기 직전에만 뒤집는다.
-  const renderChart = useCallback((candlesDesc: Candle[]) => {
+  // initialVisibleCount: 최초 진입 시 MA120 버퍼용으로 여분 페이지를 더 로드했을 때, 화면에는
+  // 기존과 동일하게 최근 이 개수만큼만 보이도록 시야를 맞춘다(생략 시 lightweight-charts 기본
+  // 동작대로 로드된 전체 구간에 맞춰 fit).
+  const renderChart = useCallback((candlesDesc: Candle[], initialVisibleCount?: number) => {
     const ascendingCandles = [...candlesDesc].reverse();
     // 국내(KRW)는 소수점 단위 거래가 없어 정수로, 그 외 통화는 기존처럼 센트 단위(소수점 둘째
     // 자리)까지 표시한다. lightweight-charts 내장 'price' 포맷은 천 단위 콤마를 안 찍어주므로
@@ -369,18 +372,41 @@ export default function ChartCard({ stock }: ChartCardProps) {
           }
         : null,
     );
+
+    if (initialVisibleCount && ascendingCandles.length > initialVisibleCount) {
+      const to = ascendingCandles.length;
+      chartApiRef.current
+        ?.timeScale()
+        .setVisibleLogicalRange({ from: to - initialVisibleCount, to });
+    }
   }, []);
 
   const loadCandles = useCallback(
     async (symbol: string, interval: CandleInterval) => {
       setLoadingChart(true);
       try {
-        const page = await api.getCandles({ symbol, interval, count: CANDLE_PAGE_SIZE });
+        const firstPage = await api.getCandles({ symbol, interval, count: CANDLE_PAGE_SIZE });
         if (activeSymbolRef.current !== symbol) return;
-        candlesRef.current = page.candles;
+        let candles = firstPage.candles;
+        let nextBeforeCursor = firstPage.nextBefore;
+        // 120일선이 최초 진입 시 보이는 구간 전체에서 끊김 없이 그려지도록, 페이지를 한 번 더
+        // 미리 이어붙여(최대 400개) 120봉치 과거 버퍼를 확보해둔다. 왼쪽 끝까지 드래그했을 때
+        // 추가로 더 불러오는 무한 스크롤(handleLoadMore)과는 별개의 선제 로딩이다.
+        if (nextBeforeCursor) {
+          const secondPage = await api.getCandles({
+            symbol,
+            interval,
+            count: CANDLE_PAGE_SIZE,
+            before: nextBeforeCursor,
+          });
+          if (activeSymbolRef.current !== symbol) return;
+          candles = [...candles, ...secondPage.candles];
+          nextBeforeCursor = secondPage.nextBefore;
+        }
+        candlesRef.current = candles;
         loadedSymbolRef.current = symbol;
-        setNextBefore(page.nextBefore);
-        renderChart(page.candles);
+        setNextBefore(nextBeforeCursor);
+        renderChart(candles, CANDLE_PAGE_SIZE);
       } catch {
         message.error('차트 정보를 불러오지 못했습니다.');
       } finally {

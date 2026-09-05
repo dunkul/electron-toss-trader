@@ -28,6 +28,10 @@ import type { Candle, CandleInterval, PriceQuote } from '../lib/ipc';
 import type { SelectedStock } from '../store/useSelectedStockStore';
 
 const CANDLE_PAGE_SIZE = 200; // Toss API의 /candles는 한 번 요청에 최대 200개까지만 허용한다.
+// 로딩된 데이터의 시작 지점으로부터 이만큼 남았을 때 다음 페이지를 미리 불러온다. 끝에 딱
+// 붙었을 때 불러오면 응답이 오기 전에 120일선이 더 왼쪽으로 드래그된 구간에서 끊겨 보이므로,
+// 여유(200봉 중 절반)를 두고 미리 당겨온다.
+const LOAD_MORE_THRESHOLD_BARS = 100;
 
 const MA_PERIODS = [5, 20, 60, 120] as const;
 const MA_COLORS: Record<(typeof MA_PERIODS)[number], string> = {
@@ -271,9 +275,9 @@ export default function ChartCard({ stock }: ChartCardProps) {
     });
 
     // 차트를 왼쪽(과거 방향)으로 드래그해서 로딩된 데이터의 시작 지점 근처까지 가면
-    // 자동으로 이전 페이지를 이어붙인다(무한 스크롤). 10봉 여유를 두고 미리 불러온다.
+    // 자동으로 이전 페이지를 이어붙인다(무한 스크롤).
     const handleVisibleLogicalRangeChange = (range: LogicalRange | null) => {
-      if (range && range.from < 10) {
+      if (range && range.from < LOAD_MORE_THRESHOLD_BARS) {
         handleLoadMoreRef.current();
       }
     };
